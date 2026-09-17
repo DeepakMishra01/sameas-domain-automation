@@ -88,6 +88,12 @@ def downgrade() -> None:
         "fk_evidence_observation_id_domain_observations", "evidence", type_="foreignkey"
     )
     op.drop_column("evidence", "observation_id")
+    # Phase 3 allows factual evidence with no asserted weight (strength IS NULL).
+    # Phase 2 requires strength NOT NULL, so before restoring that constraint we
+    # backfill any null strengths with the most conservative valid value (WEAK,
+    # the lowest weight) rather than dropping the rows. This keeps the downgrade
+    # safe on a populated database and preserves every evidence record.
+    op.execute("UPDATE evidence SET strength = 'WEAK' WHERE strength IS NULL")
     op.alter_column("evidence", "strength", existing_type=sa.String(length=11), nullable=False)
 
     op.drop_index("ix_domain_observations_collector_version", table_name="domain_observations")
