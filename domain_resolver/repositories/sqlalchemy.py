@@ -72,6 +72,9 @@ class SqlAlchemyDomainObservationRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def get_by_id(self, observation_id: UUID) -> DomainObservation | None:
+        return self._session.get(DomainObservation, observation_id)
+
     def create(self, observation: DomainObservation) -> DomainObservation:
         self._session.add(observation)
         self._session.flush()

@@ -6,7 +6,7 @@ All tables use UUID primary keys and UTC timestamps. The initial schema is manag
 | --- | --- | --- |
 | `companies` | CPT company identity and raw/normalized name | mutable current identity; `created_at` + `updated_at` |
 | `domains` | normalized registrable host and raw input | stable domain record |
-| `domain_observations` | crawl/availability/source snapshot | append only |
+| `domain_observations` | crawl/availability/source snapshot (+ `collector_version`, `error_category`, `error_detail`, structured `payload`) | append only |
 | `domain_relationships` | pairwise organization relationship assessment | append assessment versions |
 | `evidence` | attributable evidence with raw payload | append only |
 | `decision_evidence` | link rows tracing a decision to supporting evidence | append only |
@@ -41,6 +41,8 @@ DecisionEvidence        RelationshipEvidence
 ```
 
 `decision_evidence(decision_id, evidence_id)` and `relationship_evidence(relationship_id, evidence_id)` each carry foreign keys with `RESTRICT` delete semantics and a uniqueness constraint on the pair, so evidence cannot be double-linked and links cannot reference nonexistent evidence. Structured detail may still live in `evidence.raw_payload`, `decision.outcome_payload`, and relationship rows, but relational traceability is authoritative.
+
+Factual observation evidence (Phase 3) is additionally traceable to its source via the nullable `evidence.observation_id` foreign key to `domain_observations` (`RESTRICT`). Such evidence is purely factual (`REDIRECT`, `CANONICAL_URL`) and asserts no `strength` (the column is nullable and left null); interpretive weights are a later-phase concern. See [observation.md](observation.md).
 
 ## Relationship pair discipline
 

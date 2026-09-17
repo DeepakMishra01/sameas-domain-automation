@@ -18,7 +18,9 @@ Collection produces facts; matching consumes normalized features; canonical reso
 - `domain_resolver/models`: SQLAlchemy 2.x PostgreSQL persistence definitions.
 - `domain_resolver/infrastructure`: explicit engine, session factory, transaction, and request-dependency utilities.
 - `domain_resolver/repositories`: small persistence ports and thin SQLAlchemy adapters.
-- `crawlers`, `extractors`, `features`, `matching`, `decisions`, and `llm`: reserved boundaries for subsequent phases.
+- `domain_resolver/observation`: Phase 3 safe domain observation — SSRF-resistant network layer, DNS and HTTP observers, bounded HTML extraction, and the observation orchestration service. It answers "what did we observe?" only; it performs no matching, scoring, or primary-domain selection. See [observation.md](observation.md).
+- `apps/worker`: Celery application and the `observe_domain` task wrapping the observation service.
+- `extractors`, `features`, `matching`, `decisions`, and `llm`: reserved boundaries for subsequent phases.
 
 ## Architectural decisions
 

@@ -5,7 +5,9 @@ DERE is an internal, evidence-first service for resolving a supplied set of cand
 1. **Organization entity resolution** — whether domains belong to the same organization.
 2. **Canonical domain resolution** — which confirmed organization domain is primary or secondary.
 
-This repository currently implements the project and database foundations: configuration, Alembic migrations, PostgreSQL session infrastructure, persistence ports, a historical data model with relational evidence traceability (`decision_evidence` / `relationship_evidence`), canonical relationship-pair discipline, domain normalization, a FastAPI health endpoint, and tests. Crawling, evidence scoring, matching, primary-domain selection, and LLM verification are intentionally out of scope.
+This repository currently implements the project and database foundations plus a safe domain-observation layer: configuration, Alembic migrations, PostgreSQL session infrastructure, persistence ports, a historical data model with relational evidence traceability (`decision_evidence` / `relationship_evidence` / `evidence.observation_id`), canonical relationship-pair discipline, domain normalization, a FastAPI health endpoint, and — as of Phase 3 — SSRF-resistant DNS/HTTP observation with bounded HTML extraction, factual evidence, a Celery task, and observation API endpoints. Evidence **scoring**, same-as **matching**, organization resolution, primary-domain selection, and LLM verification remain intentionally out of scope.
+
+Phase 3 collects factual observations only ("what did we observe?") and never determines same-as relationships. See [docs/observation.md](docs/observation.md).
 
 ## Local development
 
@@ -29,8 +31,8 @@ export DERE_DATABASE_URL='postgresql+psycopg://...'
 ## Current implementation plan
 
 1. Foundation (complete): contracts, configuration, model skeleton, health API, normalization, tests.
-2. Database migrations and repository adapters.
-3. Safe crawling and collection.
+2. Database migrations and repository adapters (complete).
+3. Safe domain observation and collection (complete): SSRF-safe DNS/HTTP observation, factual evidence, worker task, API.
 4. Evidence extraction and normalization.
 5. Organization-resolution features and configurable rules.
 6. Primary-domain resolution, evaluation, review workflows, and production hardening.

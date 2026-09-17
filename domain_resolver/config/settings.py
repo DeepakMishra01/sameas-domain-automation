@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     database_url: str | None = Field(default=None, repr=False)
     test_database_url: str | None = Field(default=None, repr=False)
 
+    # Identifies which collector produced a stored observation. Defined once here
+    # so historical observations remain attributable to a specific collector.
+    collector_version: str = Field(default="domain-observer-v1")
+
+    # Celery broker/result backend for the optional asynchronous worker. Never a
+    # secret is logged from here; the values are provided by the environment.
+    celery_broker_url: str = Field(default="redis://localhost:6379/0", repr=False)
+    celery_result_backend: str = Field(default="redis://localhost:6379/1", repr=False)
+
     def require_database_url(self) -> str:
         """Return the configured production database URL or fail at use time."""
         if self.database_url is None:

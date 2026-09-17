@@ -84,6 +84,29 @@ class ModelVersionKind(StrEnum):
     FEATURE_CONFIGURATION = "FEATURE_CONFIGURATION"
 
 
+class ObservationErrorCategory(StrEnum):
+    """Factual, reliably-classifiable failure categories for domain observation.
+
+    These describe *what failed while observing*, never a relationship judgement.
+    A value is recorded only when the underlying failure can be classified with
+    confidence; ambiguous failures are left uncategorised with detail preserved.
+    """
+
+    DNS_ERROR = "DNS_ERROR"
+    TIMEOUT = "TIMEOUT"
+    ROBOTS_BLOCKED = "ROBOTS_BLOCKED"
+    HTTP_403 = "HTTP_403"
+    HTTP_429 = "HTTP_429"
+    HTTP_4XX = "HTTP_4XX"
+    HTTP_5XX = "HTTP_5XX"
+    SSL_ERROR = "SSL_ERROR"
+    CONNECTION_ERROR = "CONNECTION_ERROR"
+    PARSER_ERROR = "PARSER_ERROR"
+    RESPONSE_TOO_LARGE = "RESPONSE_TOO_LARGE"
+    REDIRECT_LIMIT = "REDIRECT_LIMIT"
+    SSRF_BLOCKED = "SSRF_BLOCKED"
+
+
 class Company(UUIDTimestampMixin, MutableTimestampMixin, Base):
     __tablename__ = "companies"
 
@@ -135,6 +158,19 @@ class DomainObservation(UUIDTimestampMixin, Base):
         default=DomainState.UNKNOWN,
         server_default=DomainState.UNKNOWN.value,
     )
+    # Identifies the collector that produced this observation, so historical rows
+    # remain attributable across collector versions. Nullable for rows created by
+    # non-observer paths; the observer always sets it.
+    collector_version: Mapped[str | None] = mapped_column(String(64), index=True)
+    error_category: Mapped[ObservationErrorCategory | None] = mapped_column(
+        Enum(
+            ObservationErrorCategory,
+            name="observation_error_category",
+            native_enum=False,
+            create_constraint=True,
+        )
+    )
+    error_detail: Mapped[str | None] = mapped_column(Text)
     observed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=func.now(), index=True
     )
@@ -142,6 +178,7 @@ class DomainObservation(UUIDTimestampMixin, Base):
 
     company: Mapped[Company] = relationship(back_populates="observations")
     domain: Mapped[Domain] = relationship(back_populates="observations")
+    evidence: Mapped[list["Evidence"]] = relationship(back_populates="observation")
 
 
 class CrawlJob(UUIDTimestampMixin, MutableTimestampMixin, Base):
@@ -189,8 +226,14 @@ class Evidence(UUIDTimestampMixin, Base):
         ForeignKey("domains.id", ondelete="RESTRICT"), index=True
     )
     value: Mapped[bool | None] = mapped_column(Boolean)
-    strength: Mapped[EvidenceStrength] = mapped_column(
+    # Strength is an interpretive weight and is intentionally optional: factual
+    # observation evidence (Phase 3) asserts no validated weight and leaves it null.
+    strength: Mapped[EvidenceStrength | None] = mapped_column(
         Enum(EvidenceStrength, name="evidence_strength", native_enum=False, create_constraint=True)
+    )
+    # Traceability to the observation that produced this factual evidence.
+    observation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("domain_observations.id", ondelete="RESTRICT"), index=True
     )
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     observed_at: Mapped[datetime] = mapped_column(
@@ -203,6 +246,7 @@ class Evidence(UUIDTimestampMixin, Base):
     domain_b: Mapped[Domain | None] = relationship(
         back_populates="evidence_as_b", foreign_keys=[domain_b_id]
     )
+    observation: Mapped["DomainObservation | None"] = relationship(back_populates="evidence")
     decision_links: Mapped[list["DecisionEvidence"]] = relationship(back_populates="evidence")
     relationship_links: Mapped[list["RelationshipEvidence"]] = relationship(
         back_populates="evidence"

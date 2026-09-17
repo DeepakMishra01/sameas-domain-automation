@@ -24,6 +24,7 @@ EXPECTED_CHECK_NAMES = {
     "ck_decisions_confidence_range",
     "ck_decisions_decision_status",
     "ck_domain_observations_domain_state",
+    "ck_domain_observations_observation_error_category",
     "ck_domain_relationships_canonical_domain_order",
     "ck_domain_relationships_confidence_range",
     "ck_domain_relationships_relationship_state",

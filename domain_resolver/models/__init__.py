@@ -13,6 +13,7 @@ from domain_resolver.models.entities import (
     HumanReview,
     HumanReviewSecondaryDomain,
     ModelVersion,
+    ObservationErrorCategory,
     RelationshipEvidence,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "HumanReview",
     "HumanReviewSecondaryDomain",
     "ModelVersion",
+    "ObservationErrorCategory",
     "RelationshipEvidence",
 ]
