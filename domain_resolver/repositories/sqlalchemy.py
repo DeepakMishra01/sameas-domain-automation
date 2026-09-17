@@ -148,6 +148,23 @@ class SqlAlchemyDomainRelationshipRepository:
     def get_by_id(self, relationship_id: UUID) -> DomainRelationship | None:
         return self._session.get(DomainRelationship, relationship_id)
 
+    def get_by_company_pair_and_version(
+        self,
+        company_id: UUID,
+        domain_a_id: UUID,
+        domain_b_id: UUID,
+        model_version_id: UUID,
+    ) -> DomainRelationship | None:
+        low, high = canonical_domain_pair(domain_a_id, domain_b_id)
+        return self._session.scalar(
+            select(DomainRelationship).where(
+                DomainRelationship.company_id == company_id,
+                DomainRelationship.domain_a_id == low,
+                DomainRelationship.domain_b_id == high,
+                DomainRelationship.model_version_id == model_version_id,
+            )
+        )
+
     def create(self, relationship: DomainRelationship) -> DomainRelationship:
         # Canonicalize the pair direction before persisting so the database check
         # constraint (domain_a_id < domain_b_id) is always satisfied and the same

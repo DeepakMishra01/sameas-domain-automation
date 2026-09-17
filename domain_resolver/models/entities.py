@@ -310,6 +310,11 @@ class DomainRelationship(UUIDTimestampMixin, Base):
         server_default=RelationshipState.UNKNOWN.value,
     )
     confidence: Mapped[float | None] = mapped_column(Float)
+    # Explainability: the pairwise reason codes that fired and the deterministic
+    # pairwise feature audit that produced this assessment. Nullable so pre-Phase-5
+    # rows and non-matcher writers remain valid.
+    reason_codes: Mapped[list[Any] | None] = mapped_column(JSON)
+    match_features: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     model_version_id: Mapped[UUID] = mapped_column(
         ForeignKey("model_versions.id", ondelete="RESTRICT"), index=True
     )

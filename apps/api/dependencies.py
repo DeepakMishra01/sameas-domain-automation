@@ -12,6 +12,8 @@ from domain_resolver.infrastructure.database import (
     create_session_factory,
     session_scope,
 )
+from domain_resolver.matching.config import MatcherConfig
+from domain_resolver.matching.matcher import OrganizationMatcher
 from domain_resolver.observation.dns_observer import DnsObserver
 from domain_resolver.observation.http_observer import HttpObserver
 from domain_resolver.observation.service import DnsObserverPort, HttpObserverPort
@@ -51,3 +53,8 @@ def http_observer_dependency() -> HttpObserverPort:
 def feature_extractor_dependency() -> FeatureExtractor:
     """Provide the deterministic feature extractor at the configured version."""
     return FeatureExtractor(get_settings().feature_extractor_version)
+
+
+def organization_matcher_dependency() -> OrganizationMatcher:
+    """Provide the deterministic organization matcher at the configured version."""
+    return OrganizationMatcher(MatcherConfig(version=get_settings().matcher_version))

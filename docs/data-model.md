@@ -7,7 +7,7 @@ All tables use UUID primary keys and UTC timestamps. The initial schema is manag
 | `companies` | CPT company identity and raw/normalized name | mutable current identity; `created_at` + `updated_at` |
 | `domains` | normalized registrable host and raw input | stable domain record |
 | `domain_observations` | crawl/availability/source snapshot (+ `collector_version`, `error_category`, `error_detail`, structured `payload`) | append only |
-| `domain_relationships` | pairwise organization relationship assessment | append assessment versions |
+| `domain_relationships` | pairwise same-organization assessment (Phase 5: `same_organization`, `confidence`, `reason_codes`, `match_features`, `model_version_id`) | append assessment versions; canonical `domain_a_id < domain_b_id` |
 | `evidence` | attributable evidence with raw payload | append only |
 | `decision_evidence` | link rows tracing a decision to supporting evidence | append only |
 | `relationship_evidence` | link rows tracing a relationship assessment to supporting evidence | append only |

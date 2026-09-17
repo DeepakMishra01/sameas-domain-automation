@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # coexist. Defined once here (Phase 4).
     feature_extractor_version: str = Field(default="feature-extractor-v1")
 
+    # Identifies which deterministic organization matcher produced a relationship
+    # assessment, so versions coexist and can be evaluated against CPT data
+    # (Phase 5). The matcher's weights/thresholds are persisted per version.
+    matcher_version: str = Field(default="org-matcher-v1")
+
     # Celery broker/result backend for the optional asynchronous worker. Never a
     # secret is logged from here; the values are provided by the environment.
     celery_broker_url: str = Field(default="redis://localhost:6379/0", repr=False)

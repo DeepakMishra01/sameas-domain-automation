@@ -150,6 +150,17 @@ def normalize_social_url(url: str) -> tuple[str, str] | None:
     return platform, urlunsplit(("https", host, path, "", ""))
 
 
+def domain_name_key(host: str) -> str:
+    """Return the host's name portion (all labels before the final one).
+
+    Used for domain-name similarity so a shared TLD (``.com``/``.test``) does not
+    inflate the similarity of otherwise-different names. Deterministic and
+    stdlib-only; not a public-suffix-aware registrable domain.
+    """
+    cleaned = host.lower().rstrip(".")
+    return cleaned.rsplit(".", 1)[0] if "." in cleaned else cleaned
+
+
 def is_same_site(host_a: str, host_b: str) -> bool:
     """True if the two hosts are equal or one is a subdomain of the other.
 
