@@ -42,6 +42,7 @@ EXPECTED_TABLES = {
     "human_review_secondary_domains",
     "human_reviews",
     "model_versions",
+    "observation_features",
     "relationship_evidence",
 }
 

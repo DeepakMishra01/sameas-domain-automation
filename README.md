@@ -9,6 +9,8 @@ This repository currently implements the project and database foundations plus a
 
 Phase 3 collects factual observations only ("what did we observe?") and never determines same-as relationships. See [docs/observation.md](docs/observation.md).
 
+Phase 4 turns those observations into deterministic, normalized, versioned features and factual evidence ("what factual signals are present?") — still no matching, scoring, or organization judgement. See [docs/feature-extraction.md](docs/feature-extraction.md) and [docs/evidence-taxonomy.md](docs/evidence-taxonomy.md).
+
 ## Local development
 
 ```bash
@@ -33,7 +35,7 @@ export DERE_DATABASE_URL='postgresql+psycopg://...'
 1. Foundation (complete): contracts, configuration, model skeleton, health API, normalization, tests.
 2. Database migrations and repository adapters (complete).
 3. Safe domain observation and collection (complete): SSRF-safe DNS/HTTP observation, factual evidence, worker task, API.
-4. Evidence extraction and normalization.
+4. Evidence extraction and normalization (complete): deterministic normalization, versioned feature snapshots, factual evidence with provenance, worker task, API.
 5. Organization-resolution features and configurable rules.
 6. Primary-domain resolution, evaluation, review workflows, and production hardening.
 

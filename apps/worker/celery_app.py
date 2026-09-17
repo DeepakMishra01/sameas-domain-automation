@@ -19,7 +19,7 @@ def create_celery_app() -> Celery:
         "dere",
         broker=settings.celery_broker_url,
         backend=settings.celery_result_backend,
-        include=["apps.worker.tasks.observe"],
+        include=["apps.worker.tasks.observe", "apps.worker.tasks.extract"],
     )
     app.conf.update(
         task_acks_late=True,

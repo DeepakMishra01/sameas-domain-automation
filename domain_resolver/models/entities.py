@@ -179,6 +179,7 @@ class DomainObservation(UUIDTimestampMixin, Base):
     company: Mapped[Company] = relationship(back_populates="observations")
     domain: Mapped[Domain] = relationship(back_populates="observations")
     evidence: Mapped[list["Evidence"]] = relationship(back_populates="observation")
+    features: Mapped[list["ObservationFeature"]] = relationship(back_populates="observation")
 
 
 class CrawlJob(UUIDTimestampMixin, MutableTimestampMixin, Base):
@@ -446,3 +447,28 @@ class RelationshipEvidence(UUIDTimestampMixin, Base):
 
     domain_relationship: Mapped[DomainRelationship] = relationship(back_populates="evidence_links")
     evidence: Mapped[Evidence] = relationship(back_populates="relationship_links")
+
+
+class ObservationFeature(UUIDTimestampMixin, Base):
+    """Append-only, versioned normalized feature snapshot for one observation.
+
+    A snapshot is unique per (observation, feature_version): re-running the same
+    extractor version is idempotent, while a new extractor version produces a new
+    snapshot that coexists with older versions (history is never overwritten).
+    """
+
+    __tablename__ = "observation_features"
+    __table_args__ = (UniqueConstraint("observation_id", "feature_version"),)
+
+    observation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("domain_observations.id", ondelete="RESTRICT"), index=True
+    )
+    domain_id: Mapped[UUID] = mapped_column(
+        ForeignKey("domains.id", ondelete="RESTRICT"), index=True
+    )
+    feature_version: Mapped[str] = mapped_column(String(64), index=True)
+    features: Mapped[dict[str, Any]] = mapped_column(JSON)
+    warnings: Mapped[list[Any] | None] = mapped_column(JSON)
+
+    observation: Mapped[DomainObservation] = relationship(back_populates="features")
+    domain: Mapped[Domain] = relationship()

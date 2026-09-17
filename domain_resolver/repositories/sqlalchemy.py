@@ -16,6 +16,7 @@ from domain_resolver.models.entities import (
     Evidence,
     HumanReview,
     ModelVersion,
+    ObservationFeature,
     RelationshipEvidence,
 )
 
@@ -95,6 +96,47 @@ class SqlAlchemyDomainObservationRepository:
                 select(DomainObservation)
                 .where(DomainObservation.domain_id == domain_id)
                 .order_by(DomainObservation.observed_at)
+            )
+        )
+
+
+class SqlAlchemyObservationFeatureRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get_by_id(self, feature_id: UUID) -> ObservationFeature | None:
+        return self._session.get(ObservationFeature, feature_id)
+
+    def get_by_observation_and_version(
+        self, observation_id: UUID, feature_version: str
+    ) -> ObservationFeature | None:
+        return self._session.scalar(
+            select(ObservationFeature).where(
+                ObservationFeature.observation_id == observation_id,
+                ObservationFeature.feature_version == feature_version,
+            )
+        )
+
+    def create(self, feature: ObservationFeature) -> ObservationFeature:
+        self._session.add(feature)
+        self._session.flush()
+        return feature
+
+    def list_by_domain(self, domain_id: UUID) -> list[ObservationFeature]:
+        return list(
+            self._session.scalars(
+                select(ObservationFeature)
+                .where(ObservationFeature.domain_id == domain_id)
+                .order_by(ObservationFeature.created_at)
+            )
+        )
+
+    def list_by_observation(self, observation_id: UUID) -> list[ObservationFeature]:
+        return list(
+            self._session.scalars(
+                select(ObservationFeature)
+                .where(ObservationFeature.observation_id == observation_id)
+                .order_by(ObservationFeature.created_at)
             )
         )
 

@@ -6,6 +6,7 @@ from functools import lru_cache
 from sqlalchemy.orm import Session, sessionmaker
 
 from domain_resolver.config.settings import Settings, get_settings
+from domain_resolver.features.extractor import FeatureExtractor
 from domain_resolver.infrastructure.database import (
     create_engine_from_settings,
     create_session_factory,
@@ -45,3 +46,8 @@ def dns_observer_dependency() -> DnsObserverPort:
 def http_observer_dependency() -> HttpObserverPort:
     """Provide the production, SSRF-safe HTTP observer (overridable in tests)."""
     return HttpObserver()
+
+
+def feature_extractor_dependency() -> FeatureExtractor:
+    """Provide the deterministic feature extractor at the configured version."""
+    return FeatureExtractor(get_settings().feature_extractor_version)

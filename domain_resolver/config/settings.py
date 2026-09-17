@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # so historical observations remain attributable to a specific collector.
     collector_version: str = Field(default="domain-observer-v1")
 
+    # Identifies which deterministic feature extractor produced a feature snapshot
+    # and its evidence, so historical feature versions stay attributable and can
+    # coexist. Defined once here (Phase 4).
+    feature_extractor_version: str = Field(default="feature-extractor-v1")
+
     # Celery broker/result backend for the optional asynchronous worker. Never a
     # secret is logged from here; the values are provided by the environment.
     celery_broker_url: str = Field(default="redis://localhost:6379/0", repr=False)

@@ -16,6 +16,7 @@ All tables use UUID primary keys and UTC timestamps. The initial schema is manag
 | `human_review_secondary_domains` | normalized corrected-secondary links for a review | append only |
 | `model_versions` | rule/model/feature configuration identity | immutable version records |
 | `crawl_jobs` | asynchronous crawl lifecycle | mutable status; `created_at` + `updated_at`, retain output/error |
+| `observation_features` | Phase 4 normalized, versioned feature snapshot per observation | append only; unique `(observation_id, feature_version)` |
 
 `domain_observations` and `evidence` retain `observed_at`, raw values/payloads, and source context. `decisions` and `domain_relationships` reference `model_versions` by foreign key. Historical facts have no repository update operation; only crawl-job lifecycle state can be persisted through `save`. Foreign keys are `RESTRICT` to prevent accidental loss of retained facts.
 
