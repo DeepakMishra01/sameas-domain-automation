@@ -19,6 +19,20 @@ from domain_resolver.observation.results import HtmlSummary
 _SKIP_TAGS = frozenset({"script", "style", "noscript", "template"})
 
 
+def _parse_refresh_target(content: str) -> str | None:
+    """Extract the URL from a ``<meta http-equiv="refresh">`` content value.
+
+    Accepts forms like ``"5;url=https://x"`` / ``"0; URL='https://x'"``. Returns
+    ``None`` for a self-reload (no ``url=``) or a malformed value.
+    """
+    _, _, directive = content.partition(";")
+    directive = directive.strip()
+    if directive[:4].lower() != "url=":
+        return None
+    target = directive[4:].strip().strip("'\"")
+    return target or None
+
+
 class _BoundedHtmlParser(HTMLParser):
     def __init__(self, limits: ObservationLimits) -> None:
         super().__init__(convert_charrefs=True)
@@ -27,6 +41,7 @@ class _BoundedHtmlParser(HTMLParser):
         self.meta_description: str | None = None
         self.og_description: str | None = None
         self.canonical_url: str | None = None
+        self.meta_refresh_url: str | None = None
         self.links: list[str] = []
         self._text_parts: list[str] = []
         self._text_len = 0
@@ -45,11 +60,14 @@ class _BoundedHtmlParser(HTMLParser):
         if tag == "meta":
             name = attributes.get("name", "").lower()
             prop = attributes.get("property", "").lower()
+            http_equiv = attributes.get("http-equiv", "").lower()
             content = attributes.get("content")
             if name == "description" and content:
                 self.meta_description = self.meta_description or content.strip()
             elif prop == "og:description" and content:
                 self.og_description = self.og_description or content.strip()
+            elif http_equiv == "refresh" and content and self.meta_refresh_url is None:
+                self.meta_refresh_url = _parse_refresh_target(content)
         elif tag == "link":
             rel = attributes.get("rel", "").lower()
             href = attributes.get("href")
@@ -107,6 +125,7 @@ def extract_html_summary(
         title=title,
         meta_description=parser.meta_description or parser.og_description,
         canonical_url=parser.canonical_url,
+        meta_refresh_url=parser.meta_refresh_url,
         links=parser.links,
         text_excerpt=text_excerpt,
         content_hash=content_hash,

@@ -78,10 +78,17 @@ same.
 ## Redirect handling
 
 Redirects are followed manually (`follow_redirects=False`). The complete chain
-is persisted as fact (source URL, status code, location, target). Loops are
-detected, the redirect count is bounded, and every target is validated. A chain
-such as `zeptonow.com → www.zeptonow.com → zepto.com` is recorded as observed
-hops and never as a `zeptonow.com = zepto.com` conclusion.
+is persisted as fact (source URL, status code, location, target, and `kind`).
+Loops are detected, the redirect count is bounded, and every target is validated.
+A chain such as `zeptonow.com → www.zeptonow.com → zepto.com` is recorded as
+observed hops and never as a `zeptonow.com = zepto.com` conclusion.
+
+**Meta-refresh redirects** (`<meta http-equiv="refresh" content="N;url=…">`) are
+also followed: the target is read from the static HTML (no JavaScript is
+executed), validated with the same SSRF checks, and recorded as a chain hop with
+`kind="meta_refresh"`, sharing the same redirect budget and loop detection.
+Purely JavaScript-based redirects (e.g. `window.location`) remain out of scope
+because Phase 3 does not run a browser.
 
 ## Error taxonomy
 
@@ -95,8 +102,8 @@ ambiguous failures are left uncategorised with detail preserved.
 
 When a successful HTML response is available, a bounded, deterministic
 standard-library parser extracts only: `<title>`, meta description (with
-`og:description` fallback), canonical URL, links (deduped and capped), a bounded
-text excerpt, and a SHA-256 content hash. JavaScript is never executed and
+`og:description` fallback), canonical URL, meta-refresh target, links (deduped
+and capped), a bounded text excerpt, and a SHA-256 content hash. JavaScript is never executed and
 Playwright is not used. No company identity, legal entity, or relationship is
 extracted here.
 

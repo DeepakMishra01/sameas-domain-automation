@@ -58,6 +58,24 @@ def test_og_description_fallback() -> None:
     assert summary.meta_description == "OG text"
 
 
+def test_meta_refresh_target_extracted() -> None:
+    body = '<html><head><meta http-equiv="refresh" content="5;url=https://khareclasses.com"></head></html>'
+    summary = extract_html_summary(body, None, DEFAULT_LIMITS)
+    assert summary.meta_refresh_url == "https://khareclasses.com"
+
+
+def test_meta_refresh_quoted_and_uppercase() -> None:
+    body = '<html><head><meta http-equiv="REFRESH" content="0; URL=\'https://x.example/p\'"></head></html>'
+    summary = extract_html_summary(body, None, DEFAULT_LIMITS)
+    assert summary.meta_refresh_url == "https://x.example/p"
+
+
+def test_meta_refresh_self_reload_is_ignored() -> None:
+    body = '<html><head><meta http-equiv="refresh" content="30"></head></html>'
+    summary = extract_html_summary(body, None, DEFAULT_LIMITS)
+    assert summary.meta_refresh_url is None
+
+
 def test_missing_fields_are_none() -> None:
     summary = extract_html_summary("<html><body>hi</body></html>", None, DEFAULT_LIMITS)
     assert summary.title is None

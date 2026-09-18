@@ -121,7 +121,32 @@ class HttpObserver:
                             )
                             current = target
                             continue
-                        return self._finish_final(observation, response, chain, current)
+                        self._finish_final(observation, response, chain, current)
+
+                    # Follow a <meta http-equiv="refresh"> redirect declared in the
+                    # page HTML, under the same redirect budget, loop detection, and
+                    # SSRF validation as an HTTP redirect. No JavaScript is executed.
+                    meta_target = self._meta_refresh_target(observation, current)
+                    if (
+                        meta_target is not None
+                        and request_index < self._limits.max_redirects
+                        and str(meta_target) not in visited
+                    ):
+                        refresh_url = (
+                            observation.html.meta_refresh_url if observation.html else None
+                        )
+                        chain.append(
+                            RedirectHop(
+                                source_url=str(current),
+                                status_code=observation.status_code or 200,
+                                location=refresh_url or "",
+                                target_url=str(meta_target),
+                                kind="meta_refresh",
+                            )
+                        )
+                        current = meta_target
+                        continue
+                    return observation
 
                 # Defensive: the loop always returns above.
                 return self._finish_redirect_limit(
@@ -150,6 +175,20 @@ class HttpObserver:
         observation.final_url = str(current)
         observation.final_hostname = current.host
         return observation
+
+    def _meta_refresh_target(
+        self, observation: HttpObservation, current: httpx.URL
+    ) -> httpx.URL | None:
+        """Resolve a validated meta-refresh target, or None if absent/unsafe."""
+        html = observation.html
+        if html is None or not html.meta_refresh_url:
+            return None
+        try:
+            target = current.join(html.meta_refresh_url)
+            validate_target(target, self._limits)
+        except (ObservationError, httpx.InvalidURL, ValueError):
+            return None
+        return target
 
     def _finish_final(
         self,

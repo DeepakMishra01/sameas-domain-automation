@@ -162,6 +162,39 @@ def test_content_hash_is_deterministic() -> None:
     assert first.html.content_hash != different.html.content_hash
 
 
+def test_meta_refresh_is_followed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "start.test":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                content=b'<meta http-equiv="refresh" content="0;url=https://dest.test/">',
+            )
+        return httpx.Response(
+            200, headers={"content-type": "text/html"}, content=b"<title>Dest</title>"
+        )
+
+    obs = _observer(handler).observe("start.test")
+    assert obs.final_hostname == "dest.test"
+    assert any(hop.kind == "meta_refresh" for hop in obs.redirect_chain)
+    assert obs.html is not None and obs.html.title == "Dest"
+    assert obs.error_category is None
+
+
+def test_meta_refresh_into_private_address_is_not_followed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=b'<meta http-equiv="refresh" content="0;url=http://127.0.0.1/">',
+        )
+
+    obs = _observer(handler).observe("start.test")
+    assert obs.final_hostname == "start.test"  # unsafe meta target not followed
+    assert obs.redirect_chain == []
+    assert obs.html is not None and obs.html.meta_refresh_url == "http://127.0.0.1/"
+
+
 def test_redirect_into_private_address_is_blocked() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "evil.test":

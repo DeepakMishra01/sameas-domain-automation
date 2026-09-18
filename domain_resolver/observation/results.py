@@ -30,12 +30,18 @@ class DnsObservation(BaseModel):
 
 
 class RedirectHop(BaseModel):
-    """A single hop in an HTTP redirect chain, recorded as fact only."""
+    """A single hop in a redirect chain, recorded as fact only.
+
+    ``kind`` distinguishes a server-side HTTP 3xx redirect (``"http"``) from a
+    ``<meta http-equiv="refresh">`` redirect declared in the page HTML
+    (``"meta_refresh"``). Both are followed with the same SSRF validation.
+    """
 
     source_url: str
     status_code: int
     location: str
     target_url: str
+    kind: str = "http"
 
 
 class HtmlSummary(BaseModel):
@@ -44,6 +50,7 @@ class HtmlSummary(BaseModel):
     title: str | None = None
     meta_description: str | None = None
     canonical_url: str | None = None
+    meta_refresh_url: str | None = None
     links: list[str] = Field(default_factory=list)
     text_excerpt: str | None = None
     content_hash: str | None = None
