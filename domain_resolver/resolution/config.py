@@ -42,6 +42,9 @@ def _default_negative_weights() -> dict[PrimaryReasonCode, float]:
     return {
         PrimaryReasonCode.REDIRECTS_AWAY: 0.9,
         PrimaryReasonCode.CANONICAL_AWAY: 0.85,
+        # A one-way link (A links to B, B does not link back) is directional but
+        # weaker than a redirect/canonical, so it dampens A's score less.
+        PrimaryReasonCode.REFERENCES_AWAY: 0.6,
     }
 
 

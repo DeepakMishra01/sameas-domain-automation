@@ -94,8 +94,6 @@ def compute_group_signals(views: list[DomainFeatureView]) -> GroupSignals:
                     SignalSource(source.observation_id, target.host, target.domain_id),
                 )
                 signals[target.domain_id].add_positive(PrimaryReasonCode.CANONICAL_TARGET, src)
-            if any(_matches(ref, target.host) for ref in source.features.referenced_domains):
-                signals[target.domain_id].add_positive(PrimaryReasonCode.REFERENCED_BY_PEER, src)
 
         # Self / own-site signals.
         f = source.features
@@ -106,9 +104,34 @@ def compute_group_signals(views: list[DomainFeatureView]) -> GroupSignals:
         if has_content and not redirects_away:
             signals[source.domain_id].add_positive(PrimaryReasonCode.ACTIVE_WEBSITE, own)
 
+    # Cross-domain reference direction. A link from A to B is weak evidence that B
+    # is primary. A *one-way* link (A links to B, B does not link back) is
+    # directional — B is referenced and A defers — so A is dampened. A *mutual*
+    # reference is neutral (both get the weak positive, no away signal), keeping
+    # genuinely co-equal sites ambiguous.
+    ref_edges: dict[tuple[UUID, UUID], tuple[DomainFeatureView, DomainFeatureView]] = {}
+    for referrer in views:
+        for referenced in views:
+            if referrer.domain_id == referenced.domain_id:
+                continue
+            if any(_matches(r, referenced.host) for r in referrer.features.referenced_domains):
+                ref_edges[(referrer.domain_id, referenced.domain_id)] = (referrer, referenced)
+    for (referrer_id, referenced_id), (referrer, referenced) in ref_edges.items():
+        signals[referenced_id].add_positive(
+            PrimaryReasonCode.REFERENCED_BY_PEER,
+            SignalSource(referrer.observation_id, referrer.host, referrer.domain_id),
+        )
+        if (referenced_id, referrer_id) not in ref_edges:  # one-way: referrer defers
+            signals[referrer_id].add_negative(
+                PrimaryReasonCode.REFERENCES_AWAY,
+                SignalSource(referrer.observation_id, referenced.host, referenced.domain_id),
+            )
+
     conflicts: list[dict[str, object]] = []
-    for a, b in directed:
-        if (b, a) in directed and a < b:
-            conflicts.append({"type": "MUTUAL_DIRECTION", "domain_a": str(a), "domain_b": str(b)})
+    for src_id, tgt_id in directed:
+        if (tgt_id, src_id) in directed and src_id < tgt_id:
+            conflicts.append(
+                {"type": "MUTUAL_DIRECTION", "domain_a": str(src_id), "domain_b": str(tgt_id)}
+            )
 
     return GroupSignals(signals=signals, conflicts=conflicts)
