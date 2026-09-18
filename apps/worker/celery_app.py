@@ -23,6 +23,7 @@ def create_celery_app() -> Celery:
             "apps.worker.tasks.observe",
             "apps.worker.tasks.extract",
             "apps.worker.tasks.match",
+            "apps.worker.tasks.resolve",
         ],
     )
     app.conf.update(

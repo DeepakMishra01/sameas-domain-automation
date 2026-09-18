@@ -17,6 +17,7 @@ from domain_resolver.models.entities import (
     HumanReview,
     ModelVersion,
     ObservationFeature,
+    PrimaryResolution,
     RelationshipEvidence,
 )
 
@@ -137,6 +138,39 @@ class SqlAlchemyObservationFeatureRepository:
                 select(ObservationFeature)
                 .where(ObservationFeature.observation_id == observation_id)
                 .order_by(ObservationFeature.created_at)
+            )
+        )
+
+
+class SqlAlchemyPrimaryResolutionRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get_by_id(self, resolution_id: UUID) -> PrimaryResolution | None:
+        return self._session.get(PrimaryResolution, resolution_id)
+
+    def get_by_company_group_version(
+        self, company_id: UUID, group_key: str, model_version_id: UUID
+    ) -> PrimaryResolution | None:
+        return self._session.scalar(
+            select(PrimaryResolution).where(
+                PrimaryResolution.company_id == company_id,
+                PrimaryResolution.group_key == group_key,
+                PrimaryResolution.model_version_id == model_version_id,
+            )
+        )
+
+    def create(self, resolution: PrimaryResolution) -> PrimaryResolution:
+        self._session.add(resolution)
+        self._session.flush()
+        return resolution
+
+    def list_by_company(self, company_id: UUID) -> list[PrimaryResolution]:
+        return list(
+            self._session.scalars(
+                select(PrimaryResolution)
+                .where(PrimaryResolution.company_id == company_id)
+                .order_by(PrimaryResolution.created_at)
             )
         )
 

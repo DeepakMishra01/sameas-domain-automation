@@ -13,6 +13,8 @@ Phase 4 turns those observations into deterministic, normalized, versioned featu
 
 Phase 5 is the deterministic organization matcher: given candidate domains and their Phase 4 features, it answers only "do these belong to the same organization?" with explainable reason codes, confidence, versioned config, and evidence traceability. It selects no primary domain and makes no LLM/network call. See [docs/organization-matching.md](docs/organization-matching.md).
 
+Phase 6 is the deterministic primary-domain resolver: given a confirmed same-organization group, it answers only "which domain is primary?" from directional evidence (redirect/canonical targets, active content), never name/age/TLD. It refuses to force an answer when evidence is mutual, ambiguous, or absent (REVIEW_REQUIRED), and makes no final CPT decision (Phase 7). See [docs/primary-domain-resolution.md](docs/primary-domain-resolution.md).
+
 ## Local development
 
 ```bash
@@ -39,6 +41,7 @@ export DERE_DATABASE_URL='postgresql+psycopg://...'
 3. Safe domain observation and collection (complete): SSRF-safe DNS/HTTP observation, factual evidence, worker task, API.
 4. Evidence extraction and normalization (complete): deterministic normalization, versioned feature snapshots, factual evidence with provenance, worker task, API.
 5. Organization matching (complete): deterministic, explainable same-organization matcher with candidate generation, versioned config, evidence traceability, grouping, and an evaluation harness.
-6. Primary-domain resolution, decisions, review workflows, and production hardening.
+6. Primary-domain resolution (complete): deterministic, explainable primary/secondary resolver over confirmed same-org groups, with conflict/unresolved handling, versioned config, evidence traceability, and an evaluation harness.
+7. Final CPT decision (auto-accept/reject/review), review workflows, and production hardening.
 
 See [docs/product-requirements.md](docs/product-requirements.md), [docs/architecture.md](docs/architecture.md), and [docs/data-model.md](docs/data-model.md).

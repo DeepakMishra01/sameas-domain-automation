@@ -84,6 +84,17 @@ class ModelVersionKind(StrEnum):
     FEATURE_CONFIGURATION = "FEATURE_CONFIGURATION"
 
 
+class PrimaryResolutionStatus(StrEnum):
+    RESOLVED = "RESOLVED"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+
+
+class PrimaryDomainDesignation(StrEnum):
+    PRIMARY = "PRIMARY"
+    SECONDARY = "SECONDARY"
+    UNRESOLVED = "UNRESOLVED"
+
+
 class ObservationErrorCategory(StrEnum):
     """Factual, reliably-classifiable failure categories for domain observation.
 
@@ -250,6 +261,9 @@ class Evidence(UUIDTimestampMixin, Base):
     observation: Mapped["DomainObservation | None"] = relationship(back_populates="evidence")
     decision_links: Mapped[list["DecisionEvidence"]] = relationship(back_populates="evidence")
     relationship_links: Mapped[list["RelationshipEvidence"]] = relationship(
+        back_populates="evidence"
+    )
+    primary_links: Mapped[list["PrimaryResolutionEvidence"]] = relationship(
         back_populates="evidence"
     )
 
@@ -477,3 +491,93 @@ class ObservationFeature(UUIDTimestampMixin, Base):
 
     observation: Mapped[DomainObservation] = relationship(back_populates="features")
     domain: Mapped[Domain] = relationship()
+
+
+class PrimaryResolution(UUIDTimestampMixin, Base):
+    """Append-only, versioned primary/secondary resolution for a same-org group.
+
+    Separate from ``decisions`` (the final CPT accept/reject, Phase 7). Unique per
+    (company, group, resolver version) so re-running is idempotent while a new
+    resolver version coexists with older ones.
+    """
+
+    __tablename__ = "primary_resolutions"
+    __table_args__ = (UniqueConstraint("company_id", "group_key", "model_version_id"),)
+
+    company_id: Mapped[UUID] = mapped_column(
+        ForeignKey("companies.id", ondelete="RESTRICT"), index=True
+    )
+    group_key: Mapped[str] = mapped_column(String(64), index=True)
+    model_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("model_versions.id", ondelete="RESTRICT"), index=True
+    )
+    status: Mapped[PrimaryResolutionStatus] = mapped_column(
+        Enum(
+            PrimaryResolutionStatus,
+            name="primary_resolution_status",
+            native_enum=False,
+            create_constraint=True,
+        ),
+        index=True,
+    )
+    primary_domain_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("domains.id", ondelete="RESTRICT"), index=True
+    )
+    confidence: Mapped[float | None] = mapped_column(Float)
+    confidence_band: Mapped[str | None] = mapped_column(String(16))
+    margin: Mapped[float | None] = mapped_column(Float)
+    domain_ids: Mapped[list[Any]] = mapped_column(JSON)
+    conflicts: Mapped[list[Any] | None] = mapped_column(JSON)
+
+    company: Mapped[Company] = relationship()
+    model_version: Mapped[ModelVersion] = relationship()
+    primary_domain: Mapped[Domain | None] = relationship()
+    scores: Mapped[list["PrimaryDomainScore"]] = relationship(back_populates="resolution")
+    evidence_links: Mapped[list["PrimaryResolutionEvidence"]] = relationship(
+        back_populates="resolution"
+    )
+
+
+class PrimaryDomainScore(UUIDTimestampMixin, Base):
+    """Per-domain primary score and designation within a resolution."""
+
+    __tablename__ = "primary_domain_scores"
+    __table_args__ = (UniqueConstraint("resolution_id", "domain_id"),)
+
+    resolution_id: Mapped[UUID] = mapped_column(
+        ForeignKey("primary_resolutions.id", ondelete="RESTRICT"), index=True
+    )
+    domain_id: Mapped[UUID] = mapped_column(
+        ForeignKey("domains.id", ondelete="RESTRICT"), index=True
+    )
+    primary_score: Mapped[float] = mapped_column(Float)
+    designation: Mapped[PrimaryDomainDesignation] = mapped_column(
+        Enum(
+            PrimaryDomainDesignation,
+            name="primary_domain_designation",
+            native_enum=False,
+            create_constraint=True,
+        )
+    )
+    reason_codes: Mapped[list[Any] | None] = mapped_column(JSON)
+    evidence_ids: Mapped[list[Any] | None] = mapped_column(JSON)
+
+    resolution: Mapped[PrimaryResolution] = relationship(back_populates="scores")
+    domain: Mapped[Domain] = relationship()
+
+
+class PrimaryResolutionEvidence(UUIDTimestampMixin, Base):
+    """Relational link from a primary resolution to a supporting evidence row."""
+
+    __tablename__ = "primary_resolution_evidence"
+    __table_args__ = (UniqueConstraint("resolution_id", "evidence_id"),)
+
+    resolution_id: Mapped[UUID] = mapped_column(
+        ForeignKey("primary_resolutions.id", ondelete="RESTRICT"), index=True
+    )
+    evidence_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evidence.id", ondelete="RESTRICT"), index=True
+    )
+
+    resolution: Mapped[PrimaryResolution] = relationship(back_populates="evidence_links")
+    evidence: Mapped[Evidence] = relationship(back_populates="primary_links")

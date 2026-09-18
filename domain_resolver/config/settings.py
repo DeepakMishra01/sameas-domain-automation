@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # (Phase 5). The matcher's weights/thresholds are persisted per version.
     matcher_version: str = Field(default="org-matcher-v1")
 
+    # Identifies which deterministic primary-domain resolver produced a resolution
+    # (Phase 6), so versions coexist and can be tuned against CPT data.
+    resolver_version: str = Field(default="primary-v1")
+
     # Celery broker/result backend for the optional asynchronous worker. Never a
     # secret is logged from here; the values are provided by the environment.
     celery_broker_url: str = Field(default="redis://localhost:6379/0", repr=False)

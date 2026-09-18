@@ -11,7 +11,10 @@ All tables use UUID primary keys and UTC timestamps. The initial schema is manag
 | `evidence` | attributable evidence with raw payload | append only |
 | `decision_evidence` | link rows tracing a decision to supporting evidence | append only |
 | `relationship_evidence` | link rows tracing a relationship assessment to supporting evidence | append only |
-| `decisions` | company-level resolver outcome | append decision versions |
+| `primary_resolutions` | Phase 6 primary/secondary resolution for a same-org group (separate from `decisions`) | append; unique `(company, group, resolver version)` |
+| `primary_domain_scores` | per-domain primary score + designation within a resolution | append |
+| `primary_resolution_evidence` | resolution → supporting evidence links | append; unique pair |
+| `decisions` | final CPT accept/reject decision (Phase 7) | append decision versions |
 | `human_reviews` | CPT reviewer correction/feedback | append only |
 | `human_review_secondary_domains` | normalized corrected-secondary links for a review | append only |
 | `model_versions` | rule/model/feature configuration identity | immutable version records |

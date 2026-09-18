@@ -31,6 +31,8 @@ EXPECTED_CHECK_NAMES = {
     "ck_evidence_evidence_strength",
     "ck_human_reviews_review_decision_status",
     "ck_model_versions_model_version_kind",
+    "ck_primary_domain_scores_primary_domain_designation",
+    "ck_primary_resolutions_primary_resolution_status",
 }
 
 

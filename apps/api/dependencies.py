@@ -17,6 +17,8 @@ from domain_resolver.matching.matcher import OrganizationMatcher
 from domain_resolver.observation.dns_observer import DnsObserver
 from domain_resolver.observation.http_observer import HttpObserver
 from domain_resolver.observation.service import DnsObserverPort, HttpObserverPort
+from domain_resolver.resolution.config import ResolverConfig
+from domain_resolver.resolution.resolver import PrimaryDomainResolver
 
 
 async def settings_dependency() -> Settings:
@@ -58,3 +60,8 @@ def feature_extractor_dependency() -> FeatureExtractor:
 def organization_matcher_dependency() -> OrganizationMatcher:
     """Provide the deterministic organization matcher at the configured version."""
     return OrganizationMatcher(MatcherConfig(version=get_settings().matcher_version))
+
+
+def primary_resolver_dependency() -> PrimaryDomainResolver:
+    """Provide the deterministic primary-domain resolver at the configured version."""
+    return PrimaryDomainResolver(ResolverConfig(version=get_settings().resolver_version))

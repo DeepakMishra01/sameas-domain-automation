@@ -15,6 +15,11 @@ from domain_resolver.models.entities import (
     ModelVersion,
     ObservationErrorCategory,
     ObservationFeature,
+    PrimaryDomainDesignation,
+    PrimaryDomainScore,
+    PrimaryResolution,
+    PrimaryResolutionEvidence,
+    PrimaryResolutionStatus,
     RelationshipEvidence,
 )
 
@@ -33,5 +38,10 @@ __all__ = [
     "ModelVersion",
     "ObservationErrorCategory",
     "ObservationFeature",
+    "PrimaryDomainDesignation",
+    "PrimaryDomainScore",
+    "PrimaryResolution",
+    "PrimaryResolutionEvidence",
+    "PrimaryResolutionStatus",
     "RelationshipEvidence",
 ]
