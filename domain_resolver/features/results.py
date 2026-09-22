@@ -55,6 +55,16 @@ class FeatureSet(BaseModel):
     text_fingerprint: str | None = None
     text_tokens: list[str] = Field(default_factory=list)
 
+    # -- Stage 2 identity features (supporting evidence; never bypass SAME_AS) -
+    org_names: list[str] = Field(default_factory=list)  # raw org/brand names observed
+    brand_keys: list[str] = Field(default_factory=list)  # normalized brand keys (suffix-stripped)
+    copyright_owner: str | None = None
+    analytics_ids: list[str] = Field(default_factory=list)  # GA/AW identifiers
+    gtm_ids: list[str] = Field(default_factory=list)  # Google Tag Manager identifiers
+    favicon_href: str | None = None  # captured as a fact; not used for matching yet
+    tls_sans: list[str] = Field(default_factory=list)
+    tls_fingerprint: str | None = None
+
     referenced_domains: list[str] = Field(default_factory=list)
     cross_domain_references: list[CrossDomainReference] = Field(default_factory=list)
     social_domains: list[str] = Field(default_factory=list)

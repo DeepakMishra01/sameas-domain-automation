@@ -88,11 +88,22 @@ def test_redirect_chain_terminal_is_primary() -> None:
     assert res.primary_host == "b.test"
 
 
-def test_one_way_reference_alone_is_not_enough() -> None:
+def test_one_way_reference_resolves_to_referenced_domain() -> None:
+    # A links to B but B does not link back -> B is referenced, A defers -> B primary.
     a = _view("a.test", references=["b.test"], title="A", text="a")
     b = _view("b.test", title="B", text="b")
     res = RESOLVER.resolve([a, b])
-    # A weak reference plus both being active does not clearly identify a primary.
+    assert res.status is ResolutionStatus.RESOLVED
+    assert res.primary_host == "b.test"
+    primary = next(s for s in res.scores if s.designation is PrimaryDesignation.PRIMARY)
+    assert PrimaryReasonCode.REFERENCED_BY_PEER in primary.reason_codes
+
+
+def test_mutual_reference_stays_ambiguous() -> None:
+    # Both link each other and both are live -> genuinely co-equal -> review.
+    a = _view("a.test", references=["b.test"], title="A", text="a")
+    b = _view("b.test", references=["a.test"], title="B", text="b")
+    res = RESOLVER.resolve([a, b])
     assert res.status is ResolutionStatus.REVIEW_REQUIRED
     assert all(s.designation is PrimaryDesignation.UNRESOLVED for s in res.scores)
 

@@ -22,10 +22,15 @@ class PrimaryReasonCode(StrEnum):
     # Negative: evidence that THIS domain defers to a peer (i.e. is secondary)
     REDIRECTS_AWAY = "REDIRECTS_AWAY"  # this domain redirects to a peer
     CANONICAL_AWAY = "CANONICAL_AWAY"  # this domain's canonical is a peer
+    REFERENCES_AWAY = "REFERENCES_AWAY"  # this domain links to a peer that does NOT link back
 
 
 NEGATIVE_CODES: frozenset[PrimaryReasonCode] = frozenset(
-    {PrimaryReasonCode.REDIRECTS_AWAY, PrimaryReasonCode.CANONICAL_AWAY}
+    {
+        PrimaryReasonCode.REDIRECTS_AWAY,
+        PrimaryReasonCode.CANONICAL_AWAY,
+        PrimaryReasonCode.REFERENCES_AWAY,
+    }
 )
 
 POSITIVE_CODES: frozenset[PrimaryReasonCode] = frozenset(

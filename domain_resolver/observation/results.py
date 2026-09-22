@@ -45,7 +45,13 @@ class RedirectHop(BaseModel):
 
 
 class HtmlSummary(BaseModel):
-    """Bounded HTML facts needed by later phases; no identity interpretation."""
+    """Bounded HTML facts needed by later phases; no identity interpretation.
+
+    Stage 2 adds bounded *identity* facts (OpenGraph site/name, JSON-LD
+    organization names, favicon reference, analytics identifiers, copyright
+    owner). These are recorded as raw facts only — no judgement that two domains
+    are the same entity is made here.
+    """
 
     title: str | None = None
     meta_description: str | None = None
@@ -55,6 +61,14 @@ class HtmlSummary(BaseModel):
     text_excerpt: str | None = None
     content_hash: str | None = None
     truncated: bool = False
+
+    # -- Stage 2 identity facts (raw, bounded) --------------------------------
+    og_site_name: str | None = None
+    og_title: str | None = None
+    favicon_href: str | None = None
+    analytics_ids: list[str] = Field(default_factory=list)
+    jsonld_names: list[str] = Field(default_factory=list)
+    copyright_owner: str | None = None
 
 
 class HttpObservation(BaseModel):
@@ -70,6 +84,11 @@ class HttpObservation(BaseModel):
     final_url: str | None = None
     final_hostname: str | None = None
     html: HtmlSummary | None = None
+    # Best-effort TLS certificate facts for the final HTTPS host (Stage 2). Empty
+    # when the host is HTTP-only or the probe failed; never blocks an observation.
+    tls_sans: list[str] = Field(default_factory=list)
+    tls_fingerprint: str | None = None
+    tls_subject_cn: str | None = None
     error_category: ObservationErrorCategory | None = None
     error_detail: str | None = None
 

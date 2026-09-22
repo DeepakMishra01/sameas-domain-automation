@@ -1,0 +1,330 @@
+"""Unit tests for the deterministic relationship classifier (no DB/network).
+
+Covers the SOP §20 categories: SAME_AS (redirect required), PART_OF, ACQUIRED,
+UNRELATED, and the REVIEW_REQUIRED safety net. The central invariant is that
+shared name / phone / email / social / content / cross-links must NOT produce
+SAME_AS without an observed redirect.
+"""
+
+from typing import Any
+from uuid import UUID, uuid4
+
+from domain_resolver.classification.classifier import RelationshipClassifier
+from domain_resolver.classification.config import ClassifierConfig
+from domain_resolver.classification.reason_codes import ClassificationReasonCode
+from domain_resolver.classification.relationship_types import (
+    PartOfSubtype,
+    RelationshipDirection,
+    RelationshipType,
+)
+from domain_resolver.features.results import FeatureSet
+from domain_resolver.matching.matcher import ConfidenceBand, MatchResult
+from domain_resolver.matching.reason_codes import MatchReasonCode
+from domain_resolver.matching.views import DomainFeatureView
+
+CLASSIFIER = RelationshipClassifier()
+
+
+def _view(host: str, domain_id: UUID | None = None, **overrides: Any) -> DomainFeatureView:
+    domain_id = domain_id or uuid4()
+    features = FeatureSet(
+        feature_version="v",
+        domain_id=str(domain_id),
+        observation_id=str(uuid4()),
+        normalized_domain=host,
+        **overrides,
+    )
+    return DomainFeatureView(
+        domain_id=domain_id, observation_id=uuid4(), host=host, features=features
+    )
+
+
+def _match(
+    a: DomainFeatureView,
+    b: DomainFeatureView,
+    *,
+    same: bool = False,
+    confidence: float = 0.0,
+    codes: list[MatchReasonCode] | None = None,
+) -> MatchResult:
+    lo, hi = (a, b) if a.domain_id < b.domain_id else (b, a)
+    return MatchResult(
+        domain_a_id=lo.domain_id,
+        domain_b_id=hi.domain_id,
+        domain_a=lo.host,
+        domain_b=hi.host,
+        same_organization=same,
+        confidence=confidence,
+        confidence_band=ConfidenceBand.HIGH if confidence >= 0.8 else ConfidenceBand.LOW,
+        reason_codes=codes or [],
+        matcher_version="test",
+    )
+
+
+# --------------------------------------------------------------- SAME_AS
+def test_redirect_makes_same_as_with_target_primary() -> None:
+    a = _view("secondary.test", has_redirect=True, redirect_target_domain="primary.test")
+    b = _view("primary.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b))
+    assert result.relationship_type is RelationshipType.SAME_AS
+    assert result.primary_host == "primary.test"
+    assert result.secondary_host == "secondary.test"
+    assert ClassificationReasonCode.REDIRECT_TO_PRIMARY in result.reason_codes
+
+
+def test_redirect_chain_makes_same_as() -> None:
+    # No direct target match, but the final domain of the chain is the peer.
+    a = _view(
+        "old.test", has_redirect=True, redirect_target_domain="mid.test", final_domain="new.test"
+    )
+    b = _view("new.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b))
+    assert result.relationship_type is RelationshipType.SAME_AS
+    assert result.primary_host == "new.test"
+    assert ClassificationReasonCode.REDIRECT_CHAIN_TO_PRIMARY in result.reason_codes
+
+
+def test_both_redirect_to_common_target_is_same_as() -> None:
+    # a.test -> hub.test and b.test -> hub.test : both are the same entity (hub).
+    a = _view(
+        "a.test", has_redirect=True, redirect_target_domain="hub.test", final_domain="hub.test"
+    )
+    b = _view(
+        "b.test", has_redirect=True, redirect_target_domain="hub.test", final_domain="hub.test"
+    )
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.9))
+    assert result.relationship_type is RelationshipType.SAME_AS
+    assert result.primary_host == "hub.test"
+    assert ClassificationReasonCode.COMMON_REDIRECT_TARGET in result.reason_codes
+
+
+def test_mutual_redirect_is_review_conflict() -> None:
+    a = _view("a.test", has_redirect=True, redirect_target_domain="b.test")
+    b = _view("b.test", has_redirect=True, redirect_target_domain="a.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.95))
+    assert result.relationship_type is RelationshipType.REVIEW_REQUIRED
+    assert ClassificationReasonCode.MUTUAL_REDIRECT_CONFLICT in result.reason_codes
+    assert result.direction is RelationshipDirection.SYMMETRIC
+
+
+def test_canonical_to_parent_with_differing_content_is_part_of() -> None:
+    # A declares B canonical and serves its own distinct content -> A is a
+    # sub-property published under B (e.g. samplitude.com canonical=borisfx.com).
+    a = _view("a.test", has_canonical=True, canonical_domain="b.test", title="A product")
+    b = _view("b.test", title="B parent")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.9))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert result.primary_host == "b.test"
+    assert ClassificationReasonCode.CANONICAL_TO_PARENT in result.reason_codes
+
+
+def test_canonical_with_identical_content_is_review_not_same_as() -> None:
+    # SAME_AS requires an observed redirect; canonical + identical content is
+    # strong evidence but still routes to REVIEW (redirect-only gate).
+    a = _view("a.test", has_canonical=True, canonical_domain="b.test", content_hash="H")
+    b = _view("b.test", content_hash="H")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.9))
+    assert result.relationship_type is RelationshipType.REVIEW_REQUIRED
+    assert ClassificationReasonCode.CANONICAL_WITHOUT_REDIRECT in result.reason_codes
+
+
+def test_shared_contact_without_redirect_is_part_of_not_same_as() -> None:
+    # Same email domain + same phone, matcher says related, but NO redirect.
+    # Policy: default to PART_OF (never UNRELATED), and NEVER SAME_AS.
+    a = _view("a.test", email_domains=["corp.example"], phone_numbers=["+14155550000"])
+    b = _view("b.test", email_domains=["corp.example"], phone_numbers=["+14155550000"])
+    result = CLASSIFIER.classify(
+        a, b, _match(a, b, same=True, confidence=0.7, codes=[MatchReasonCode.SAME_EMAIL_DOMAIN])
+    )
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert result.relationship_type is not RelationshipType.SAME_AS
+
+
+# --------------------------------------------------------------- PART_OF
+def test_subsidiary_statement_makes_part_of() -> None:
+    a = _view("acme.test", normalized_text_excerpt="acme is a subsidiary of bigparent limited")
+    b = _view("bigparent.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert result.relationship_subtype is PartOfSubtype.SUBSIDIARY
+    assert result.primary_host == "bigparent.test"  # parent is primary
+    assert result.secondary_host == "acme.test"
+    assert result.parent_host == "bigparent.test"
+    assert result.part_of_host == "acme.test"
+    assert ClassificationReasonCode.SUBSIDIARY_OF in result.reason_codes
+
+
+def test_product_statement_makes_part_of_product() -> None:
+    a = _view("widget.test", normalized_text_excerpt="widget is a product of bigparent")
+    b = _view("bigparent.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert result.relationship_subtype is PartOfSubtype.PRODUCT
+
+
+def test_generic_part_of_statement_uses_other_subtype() -> None:
+    a = _view("brandx.test", normalized_text_excerpt="brandx is part of the bigparent group")
+    b = _view("bigparent.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert result.relationship_subtype is PartOfSubtype.OTHER
+    assert ClassificationReasonCode.PART_OF_STATEMENT in result.reason_codes
+
+
+def test_part_of_phrase_without_naming_peer_does_not_fire_text_signal() -> None:
+    # "part of" present but the peer is never named -> the explicit text signal
+    # must NOT fire. It still defaults to PART_OF (policy), but not via the text.
+    a = _view("brandx.test", normalized_text_excerpt="brandx is part of a large group")
+    b = _view("unnamedparent.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert ClassificationReasonCode.PART_OF_STATEMENT not in result.reason_codes
+
+
+# --------------------------------------------------------------- ACQUIRED
+def test_acquired_by_statement_makes_acquired() -> None:
+    a = _view("startup.test", normalized_text_excerpt="startup was acquired by bigacquirer in 2020")
+    b = _view("bigacquirer.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.ACQUIRED
+    assert result.primary_host == "bigacquirer.test"  # acquirer is primary
+    assert result.acquirer_host == "bigacquirer.test"
+    assert result.acquired_host == "startup.test"
+    assert ClassificationReasonCode.ACQUIRED_BY in result.reason_codes
+
+
+def test_acquisition_announcement_sets_acquirer_as_carrier() -> None:
+    a = _view("bigacquirer.test", normalized_text_excerpt="bigacquirer has acquired startup today")
+    b = _view("startup.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.ACQUIRED
+    assert result.acquirer_host == "bigacquirer.test"
+    assert result.acquired_host == "startup.test"
+
+
+def test_redirect_wins_over_acquisition_text() -> None:
+    # SOP §13 Case A: a redirect present alongside an acquisition phrase -> SAME_AS,
+    # with the statement retained in the explanation.
+    a = _view(
+        "startup.test",
+        has_redirect=True,
+        redirect_target_domain="bigacquirer.test",
+        normalized_text_excerpt="startup was acquired by bigacquirer",
+    )
+    b = _view("bigacquirer.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.95))
+    assert result.relationship_type is RelationshipType.SAME_AS
+    assert result.primary_host == "bigacquirer.test"
+    assert "acquired by" in result.explanation
+
+
+def test_contradictory_statements_go_to_review() -> None:
+    a = _view("a.test", normalized_text_excerpt="a was acquired by b company")
+    b = _view("b.test", normalized_text_excerpt="b was acquired by a company")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.REVIEW_REQUIRED
+    assert ClassificationReasonCode.CONTRADICTORY_TYPE_SIGNALS in result.reason_codes
+
+
+# --------------------------------------------------------------- UNRELATED
+def test_no_signal_defaults_to_assumed_part_of() -> None:
+    # Policy: CPT candidate pairs are never UNRELATED. With no signal, the pair is
+    # an assumed (low-confidence) PART_OF, flagged ASSUMED_RELATED.
+    a = _view("one.test")
+    b = _view("two.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=False, confidence=0.0))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert ClassificationReasonCode.ASSUMED_RELATED in result.reason_codes
+    assert result.confidence < 0.5  # clearly flagged as low confidence
+
+
+# --------------------------------------------------------------- meta
+def test_result_is_canonical_order_and_deterministic() -> None:
+    lo = UUID("00000000-0000-0000-0000-000000000001")
+    hi = UUID("00000000-0000-0000-0000-000000000002")
+    a = _view("secondary.test", lo, has_redirect=True, redirect_target_domain="primary.test")
+    b = _view("primary.test", hi)
+    forward = CLASSIFIER.classify(a, b, _match(a, b))
+    reverse = CLASSIFIER.classify(b, a, _match(b, a))
+    assert forward.domain_a_id == reverse.domain_a_id == lo
+    assert forward.relationship_type == reverse.relationship_type
+    assert forward.primary_host == reverse.primary_host == "primary.test"
+
+
+def test_classifier_version_is_recorded() -> None:
+    classifier = RelationshipClassifier(ClassifierConfig(version="rc-test-v9"))
+    a = _view("a.test", has_redirect=True, redirect_target_domain="b.test")
+    b = _view("b.test")
+    result = classifier.classify(a, b, _match(a, b))
+    assert result.classifier_version == "rc-test-v9"
+
+
+# --------------------------------------- Stage 2: identity evidence is supporting
+def test_strong_identity_without_redirect_is_part_of_not_same_as() -> None:
+    # Shared analytics ID, no redirect -> PART_OF (same operator), NEVER SAME_AS.
+    a = _view("brand-a.test", analytics_ids=["UA-999-1"])
+    b = _view("brand-b.test", analytics_ids=["UA-999-1"])
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=False, confidence=0.0))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert result.relationship_type is not RelationshipType.SAME_AS
+
+
+def test_shared_tls_certificate_without_redirect_is_not_same_as() -> None:
+    a = _view("a.test", tls_fingerprint="FP")
+    b = _view("b.test", tls_fingerprint="FP")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=False, confidence=0.0))
+    assert result.relationship_type is not RelationshipType.SAME_AS
+    assert result.relationship_type is RelationshipType.PART_OF
+
+
+def test_brand_name_match_is_part_of() -> None:
+    # Same brand -> PART_OF (per policy: same brand, no redirect -> part of).
+    a = _view("acme.test", brand_keys=["acmebrand"])
+    b = _view("acme.other", brand_keys=["acmebrand"])
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=False, confidence=0.0))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert ClassificationReasonCode.SHARED_BRAND_IDENTITY in result.reason_codes
+
+
+def test_no_identity_signal_creates_same_as() -> None:
+    # None of these signals may ever produce SAME_AS without a redirect.
+    cases = [
+        {"analytics_ids": ["UA-1-1"]},
+        {"gtm_ids": ["GTM-XYZ1"]},
+        {"tls_fingerprint": "F"},
+        {"org_names": ["acme inc"]},
+        {"copyright_owner": "acme inc"},
+        {"content_hash": "H"},
+        {"brand_keys": ["acme"]},
+        {"phone_numbers": ["+14155550000"]},
+        {"email_domains": ["corp.example"]},
+    ]
+    for over in cases:
+        a = _view("a.test", **over)
+        b = _view("b.test", **over)
+        result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.7))
+        assert result.relationship_type is not RelationshipType.SAME_AS, over
+
+
+def test_parent_product_with_identity_is_part_of_not_same_as() -> None:
+    # Product text types it PART_OF; shared identity must not flip it to SAME_AS.
+    a = _view(
+        "product.test",
+        normalized_text_excerpt="product is a product of parent",
+        analytics_ids=["UA-5-5"],
+    )
+    b = _view("parent.test", analytics_ids=["UA-5-5"])
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert result.primary_host == "parent.test"
+
+
+def test_acquired_with_identity_and_no_redirect_is_acquired_not_same_as() -> None:
+    a = _view(
+        "target.test",
+        normalized_text_excerpt="target was acquired by buyer",
+        tls_fingerprint="F",
+    )
+    b = _view("buyer.test", tls_fingerprint="F")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.ACQUIRED

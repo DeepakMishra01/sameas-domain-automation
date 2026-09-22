@@ -25,6 +25,7 @@ from domain_resolver.observation.html_extract import extract_html_summary
 from domain_resolver.observation.limits import DEFAULT_LIMITS, ObservationLimits
 from domain_resolver.observation.network import GuardedTransport, validate_target
 from domain_resolver.observation.results import HtmlSummary, HttpObservation, RedirectHop
+from domain_resolver.observation.tls_probe import probe_tls_certificate
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _CAPTURED_HEADERS = frozenset(
@@ -63,6 +64,15 @@ class HttpObserver:
                 observation = fallback
 
         observation.scheme_attempts = attempts
+        # Best-effort TLS certificate facts for a reachable HTTPS host (Stage 2
+        # supporting identity evidence). Never blocks or fails the observation.
+        final_url = observation.final_url or ""
+        if observation.status_code is not None and final_url.lower().startswith("https"):
+            facts = probe_tls_certificate(observation.final_hostname or hostname, self._limits)
+            if facts is not None:
+                observation.tls_sans = facts.sans
+                observation.tls_fingerprint = facts.fingerprint_sha256
+                observation.tls_subject_cn = facts.subject_cn
         observation.elapsed_ms = round((time.monotonic() - started) * 1000, 3)
         return observation
 

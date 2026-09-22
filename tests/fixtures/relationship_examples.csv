@@ -1,0 +1,9 @@
+scenario,domain_a,domain_b,expected_type,expected_subtype,expected_primary,label_source
+zepto_redirect,zeptonow.example,zepto.example,SAME_AS,,zepto.example,SYNTHETIC
+old_to_new_redirect,oldbrand.example,newbrand.example,SAME_AS,,newbrand.example,SYNTHETIC
+amazon_primevideo_product,primevideo.example,amazon.example,PART_OF,PRODUCT,amazon.example,SYNTHETIC
+subsidiary_statement,subco.example,parentco.example,PART_OF,SUBSIDIARY,parentco.example,SYNTHETIC
+flipkart_myntra_acquired,myntra.example,flipkart.example,ACQUIRED,,flipkart.example,SYNTHETIC
+shared_contacts_no_redirect,alpha.example,beta.example,PART_OF,OTHER,alpha.example,SYNTHETIC
+canonical_to_parent,subsite.example,canonicaltarget.example,PART_OF,OTHER,canonicaltarget.example,SYNTHETIC
+no_signal_candidate,cats.example,boats.example,PART_OF,OTHER,boats.example,SYNTHETIC
