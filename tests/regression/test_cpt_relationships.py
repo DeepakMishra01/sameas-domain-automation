@@ -62,7 +62,8 @@ def _features_for(scenario: str, a_host: str, b_host: str) -> tuple[dict[str, An
             {"email_domains": ["shared.example"], "phone_numbers": ["+15551230000"]},
             {"email_domains": ["shared.example"], "phone_numbers": ["+15551230000"]},
         )
-    if scenario == "canonical_without_content":
+    if scenario == "canonical_to_parent":
+        # A declares B canonical but serves distinct content -> A is part of B.
         return {"has_canonical": True, "canonical_domain": b_host, "content_hash": "AAA"}, {
             "content_hash": "BBB"
         }

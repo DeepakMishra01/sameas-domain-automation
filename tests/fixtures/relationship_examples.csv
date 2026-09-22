@@ -4,6 +4,6 @@ old_to_new_redirect,oldbrand.example,newbrand.example,SAME_AS,,newbrand.example,
 amazon_primevideo_product,primevideo.example,amazon.example,PART_OF,PRODUCT,amazon.example,SYNTHETIC
 subsidiary_statement,subco.example,parentco.example,PART_OF,SUBSIDIARY,parentco.example,SYNTHETIC
 flipkart_myntra_acquired,myntra.example,flipkart.example,ACQUIRED,,flipkart.example,SYNTHETIC
-shared_contacts_no_redirect,alpha.example,beta.example,REVIEW_REQUIRED,,,SYNTHETIC
-canonical_without_content,mirrorless.example,canonicaltarget.example,REVIEW_REQUIRED,,,SYNTHETIC
-unrelated_pair,cats.example,boats.example,UNRELATED,,,SYNTHETIC
+shared_contacts_no_redirect,alpha.example,beta.example,PART_OF,OTHER,alpha.example,SYNTHETIC
+canonical_to_parent,subsite.example,canonicaltarget.example,PART_OF,OTHER,canonicaltarget.example,SYNTHETIC
+no_signal_candidate,cats.example,boats.example,PART_OF,OTHER,boats.example,SYNTHETIC

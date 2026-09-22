@@ -27,6 +27,16 @@ class ClassifierConfig(BaseModel):
     confidence_acquired: float = 0.85
     confidence_part_of_subtype: float = 0.80
     confidence_part_of_generic: float = 0.70
+    # Name-morphology PART_OF (same registrable name / branch prefix). The
+    # relationship is high-precision; the parent direction is a heuristic, hence
+    # a medium confidence.
+    confidence_part_of_name: float = 0.65
+    # Both domains redirect to the same domain -> same entity (SAME_AS).
+    confidence_common_redirect: float = 0.92
+    # Shared brand/organization identity -> PART_OF (name can be coincidental).
+    confidence_part_of_identity: float = 0.55
+    # No strong signal but a CPT candidate -> assumed part-of (flagged, low conf).
+    confidence_part_of_assumed: float = 0.3
 
     # Confidence banding (provisional; not statistically validated).
     high_threshold: float = 0.80

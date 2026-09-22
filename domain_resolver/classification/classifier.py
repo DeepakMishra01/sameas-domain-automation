@@ -21,9 +21,11 @@ from __future__ import annotations
 
 from domain_resolver.classification.config import DEFAULT_CLASSIFIER_CONFIG, ClassifierConfig
 from domain_resolver.classification.identity_evidence import (
+    IdentitySignalType,
     compute_identity_evidence,
     has_strong_identity,
 )
+from domain_resolver.classification.name_relation import detect_name_relation
 from domain_resolver.classification.reason_codes import ClassificationReasonCode
 from domain_resolver.classification.relationship_types import (
     PartOfSubtype,
@@ -156,6 +158,35 @@ class RelationshipClassifier:
                 explanation=explanation,
             )
 
+        # --- 1b. Both domains redirect to a common third domain -> SAME_AS ----
+        # e.g. a.com -> hub.com and b.com -> hub.com : a and b are the same entity
+        # (both are hub.com). The shared target is the primary.
+        final_a = view_a.features.final_domain or host_a
+        final_b = view_b.features.final_domain or host_b
+        if (view_a.features.has_redirect or view_b.features.has_redirect) and _matches(
+            final_a, final_b
+        ):
+            confidence = self._config.confidence_common_redirect
+            return RelationshipClassification(
+                classifier_version=self._config.version,
+                domain_a_id=view_a.domain_id,
+                domain_b_id=view_b.domain_id,
+                domain_a=host_a,
+                domain_b=host_b,
+                relationship_type=RelationshipType.SAME_AS,
+                direction=RelationshipDirection.SYMMETRIC,
+                primary_domain_id=None,
+                primary_host=final_a,
+                secondary_host=None,
+                confidence=confidence,
+                confidence_band=self._band(confidence),
+                reason_codes=[ClassificationReasonCode.COMMON_REDIRECT_TARGET],
+                explanation=(
+                    f"{host_a} and {host_b} both redirect to {final_a}, so they are the same "
+                    f"entity; {final_a} is primary."
+                ),
+            )
+
         # --- 2 & 3. ACQUIRED / PART_OF from explicit text statements ----------
         votes = [_Vote(view_a, view_b, s) for s in signals_a] + [
             _Vote(view_b, view_a, s) for s in signals_b
@@ -165,92 +196,165 @@ class RelationshipClassifier:
             if typed is not None:
                 return typed
 
-        # --- Canonical: never SAME_AS on its own -> REVIEW (redirect required) -
-        # Per the SOP, SAME_AS requires an observed redirect. A canonical tag to
-        # the peer — even with byte-identical content — is strong same-entity
-        # *evidence* but not a redirect, so it routes to REVIEW for confirmation.
+        # --- Same-brand / regional variant from domain names -> PART_OF -------
+        # A redirect (SAME_AS) and explicit statements already took precedence. A
+        # same-registrable-name/branch-prefix relation is a deterministic PART_OF
+        # (regional variant), high-precision on the relationship; the parent
+        # direction is a heuristic (medium confidence).
+        name_rel = detect_name_relation(view_a, view_b)
+        if name_rel is not None:
+            return self._resolved(
+                view_a,
+                view_b,
+                RelationshipType.PART_OF,
+                name_rel.subtype,
+                primary=name_rel.parent,
+                secondary=name_rel.child,
+                confidence=self._config.confidence_part_of_name,
+                reason_codes=[name_rel.reason_code],
+                explanation=(
+                    f"{name_rel.child.host} and {name_rel.parent.host} share the same brand name "
+                    f"with no redirect between them; treated as a regional/branch variant "
+                    f"(part of {name_rel.parent.host})."
+                ),
+            )
+
+        # --- Canonical is directional (A declares B canonical -> A defers to B) -
+        # SAME_AS still requires an observed redirect. So:
+        #   * identical content -> a mirror of the same site; strong same-entity
+        #     evidence but no redirect, so REVIEW (confirm SAME_AS by hand).
+        #   * content differs -> A is a distinct sub-property published under B's
+        #     authoritative domain (e.g. samplitude.com canonical=borisfx.com):
+        #     PART_OF, with B the parent. A mutual canonical is a conflict -> REVIEW.
         can_ab = _matches(view_a.features.canonical_domain, host_b)
         can_ba = _matches(view_b.features.canonical_domain, host_a)
+        if can_ab and can_ba:
+            return self._review(
+                view_a,
+                view_b,
+                match_result,
+                [ClassificationReasonCode.MUTUAL_REDIRECT_CONFLICT],
+                RelationshipDirection.SYMMETRIC,
+                f"{host_a} and {host_b} each declare the other canonical; direction is ambiguous.",
+            )
         if can_ab or can_ba:
-            source, target = (view_a, view_b) if can_ab else (view_b, view_a)
-            direction = RelationshipDirection.A_TO_B if can_ab else RelationshipDirection.B_TO_A
+            child, parent = (view_a, view_b) if can_ab else (view_b, view_a)
             if _identical_content(view_a.features, view_b.features):
                 return self._review(
                     view_a,
                     view_b,
                     match_result,
                     [ClassificationReasonCode.CANONICAL_WITHOUT_REDIRECT],
-                    direction,
+                    RelationshipDirection.A_TO_B if can_ab else RelationshipDirection.B_TO_A,
                     (
-                        f"{source.host} declares {target.host} canonical and their content is "
-                        f"identical — strong same-entity evidence, but SAME_AS requires an "
-                        f"observed redirect, so this needs review."
+                        f"{child.host} declares {parent.host} canonical and their content is "
+                        f"identical — same site, but SAME_AS requires an observed redirect, "
+                        f"so this needs review."
                     ),
                 )
-            return self._review(
+            return self._resolved(
                 view_a,
                 view_b,
-                match_result,
-                [ClassificationReasonCode.CANONICAL_WITHOUT_CORROBORATION],
-                direction,
-                (
-                    f"{source.host} declares {target.host} canonical, but their content differs; "
-                    "a redirect is needed to confirm SAME_AS."
+                RelationshipType.PART_OF,
+                PartOfSubtype.OTHER,
+                primary=parent,
+                secondary=child,
+                confidence=self._config.confidence_part_of_name,
+                reason_codes=[ClassificationReasonCode.CANONICAL_TO_PARENT],
+                explanation=(
+                    f"{child.host} declares {parent.host} as its canonical domain and serves its "
+                    f"own distinct content — it is published under {parent.host}, so it is part of "
+                    f"{parent.host}."
                 ),
             )
 
-        # --- 4. Related but untyped -> REVIEW (never collapse identities) -----
-        if match_result.same_organization:
-            return self._review(
-                view_a,
-                view_b,
-                match_result,
-                [ClassificationReasonCode.RELATED_TYPE_UNDETERMINED],
-                RelationshipDirection.UNDETERMINED,
-                (
-                    f"{host_a} and {host_b} share signals "
-                    f"({', '.join(c.value for c in match_result.reason_codes) or 'related'}) "
-                    "but there is no redirect or explicit statement to type the relationship."
-                ),
-            )
-
-        # --- 5. Strong identity but no redirect/typing -> REVIEW (SOP-safe) ---
-        # Identity evidence NEVER creates SAME_AS (the redirect gate above is the
-        # only path). It only recovers a pair from UNRELATED into REVIEW so a human
-        # can confirm a same-entity/same-operator relationship the web shows no
-        # redirect for. A brand-name look-alike alone does not qualify.
+        # --- 4. Default: PART_OF (CPT candidates are related; no UNRELATED) ----
+        # Everything that reaches here is a CPT candidate pair with no redirect and
+        # no explicit statement. Rather than UNRELATED, it is treated as PART_OF
+        # (per policy), with the confidence reflecting how much evidence there is:
+        #   * shared brand / organization identity   -> medium
+        #   * related by matcher signals only         -> low-medium
+        #   * no signal at all (assumed)              -> low (flagged ASSUMED_RELATED)
+        # Direction is best-effort. REVIEW is reserved for genuine conflicts above.
         identity = compute_identity_evidence(view_a, view_b)
-        if has_strong_identity(identity):
-            signals = ", ".join(sorted({e.signal_type.value for e in identity}))
-            return self._review(
-                view_a,
-                view_b,
-                match_result,
-                [ClassificationReasonCode.IDENTITY_WITHOUT_REDIRECT],
-                RelationshipDirection.UNDETERMINED,
-                (
-                    f"{host_a} and {host_b} share strong identity evidence ({signals}) but no "
-                    "redirect was observed; SAME_AS cannot be asserted, so this needs review."
-                ),
+        brand_or_org = [
+            e
+            for e in identity
+            if e.signal_type
+            in (
+                IdentitySignalType.BRAND_NAME_MATCH,
+                IdentitySignalType.ORGANIZATION_NAME_MATCH,
+                IdentitySignalType.COPYRIGHT_OWNER_MATCH,
             )
-
-        # --- 6. UNRELATED -----------------------------------------------------
-        confidence = round(1.0 - match_result.confidence, 4)
-        return RelationshipClassification(
-            classifier_version=self._config.version,
-            domain_a_id=view_a.domain_id,
-            domain_b_id=view_b.domain_id,
-            domain_a=host_a,
-            domain_b=host_b,
-            relationship_type=RelationshipType.UNRELATED,
-            direction=RelationshipDirection.UNDETERMINED,
+        ]
+        parent, child = self._best_effort_parent(view_a, view_b)
+        if has_strong_identity(identity) or brand_or_org:
+            signals = ", ".join(sorted({e.signal_type.value for e in identity}))
+            confidence = self._config.confidence_part_of_identity
+            reason = ClassificationReasonCode.SHARED_BRAND_IDENTITY
+            explanation = (
+                f"{child.host} and {parent.host} share brand/identity evidence ({signals}) with "
+                f"no redirect; treated as part of {parent.host}."
+            )
+        elif match_result.same_organization:
+            confidence = 0.45
+            reason = ClassificationReasonCode.ASSUMED_RELATED
+            codes = ", ".join(c.value for c in match_result.reason_codes) or "shared signals"
+            explanation = (
+                f"{child.host} and {parent.host} are related ({codes}) but untyped; assumed part "
+                f"of {parent.host} (needs review to confirm the type)."
+            )
+        else:
+            confidence = self._config.confidence_part_of_assumed
+            reason = ClassificationReasonCode.ASSUMED_RELATED
+            explanation = (
+                f"No strong signal between {host_a} and {host_b}; as a candidate pair it is "
+                f"assumed part of {parent.host} (low confidence — verify)."
+            )
+        return self._resolved(
+            view_a,
+            view_b,
+            RelationshipType.PART_OF,
+            PartOfSubtype.OTHER,
+            primary=parent,
+            secondary=child,
             confidence=confidence,
-            confidence_band=self._band(confidence),
-            reason_codes=[ClassificationReasonCode.NO_CREDIBLE_RELATIONSHIP],
-            explanation=f"No credible relationship observed between {host_a} and {host_b}.",
+            reason_codes=[reason],
+            explanation=explanation,
         )
 
     # ------------------------------------------------------------------ helpers
+    def _best_effort_parent(
+        self, a: DomainFeatureView, b: DomainFeatureView
+    ) -> tuple[DomainFeatureView, DomainFeatureView]:
+        """Pick a best-effort (parent, child) for an untyped pair, deterministically.
+
+        A domain that redirects away to a third domain, or defers via a one-way
+        reference, is treated as the child; otherwise a global TLD outranks a
+        country TLD; a stable host-order tie-break makes it reproducible.
+        """
+        fa, fb = a.features, b.features
+        a_defers = fa.has_redirect and not _matches(fa.final_domain, a.host)
+        b_defers = fb.has_redirect and not _matches(fb.final_domain, b.host)
+        if a_defers and not b_defers:
+            return b, a
+        if b_defers and not a_defers:
+            return a, b
+        a_to_b = any(_matches(r, b.host) for r in fa.referenced_domains)
+        b_to_a = any(_matches(r, a.host) for r in fb.referenced_domains)
+        if a_to_b and not b_to_a:
+            return b, a
+        if b_to_a and not a_to_b:
+            return a, b
+        global_tlds = {"com", "net", "org", "io", "ai", "co", "app", "dev"}
+        a_global = a.host.rsplit(".", 1)[-1] in global_tlds
+        b_global = b.host.rsplit(".", 1)[-1] in global_tlds
+        if a_global and not b_global:
+            return a, b
+        if b_global and not a_global:
+            return b, a
+        return (a, b) if a.host < b.host else (b, a)
+
     def _from_votes(
         self,
         view_a: DomainFeatureView,
