@@ -101,13 +101,14 @@ def test_canonical_alone_is_review_not_same_as() -> None:
     assert ClassificationReasonCode.CANONICAL_WITHOUT_CORROBORATION in result.reason_codes
 
 
-def test_canonical_with_identical_content_is_same_as() -> None:
+def test_canonical_with_identical_content_is_review_not_same_as() -> None:
+    # SAME_AS requires an observed redirect; canonical + identical content is
+    # strong evidence but still routes to REVIEW (redirect-only gate).
     a = _view("a.test", has_canonical=True, canonical_domain="b.test", content_hash="H")
     b = _view("b.test", content_hash="H")
     result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.9))
-    assert result.relationship_type is RelationshipType.SAME_AS
-    assert result.primary_host == "b.test"
-    assert ClassificationReasonCode.CANONICAL_TO_PRIMARY_CORROBORATED in result.reason_codes
+    assert result.relationship_type is RelationshipType.REVIEW_REQUIRED
+    assert ClassificationReasonCode.CANONICAL_WITHOUT_REDIRECT in result.reason_codes
 
 
 def test_shared_contact_without_redirect_is_not_same_as() -> None:
@@ -234,3 +235,73 @@ def test_classifier_version_is_recorded() -> None:
     b = _view("b.test")
     result = classifier.classify(a, b, _match(a, b))
     assert result.classifier_version == "rc-test-v9"
+
+
+# --------------------------------------- Stage 2: identity evidence is supporting
+def test_strong_identity_without_redirect_is_review_not_same_as() -> None:
+    # Shared analytics ID, no redirect -> recovered from UNRELATED to REVIEW.
+    a = _view("brand-a.test", analytics_ids=["UA-999-1"])
+    b = _view("brand-b.test", analytics_ids=["UA-999-1"])
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=False, confidence=0.0))
+    assert result.relationship_type is RelationshipType.REVIEW_REQUIRED
+    assert ClassificationReasonCode.IDENTITY_WITHOUT_REDIRECT in result.reason_codes
+
+
+def test_shared_tls_certificate_without_redirect_is_not_same_as() -> None:
+    a = _view("a.test", tls_fingerprint="FP")
+    b = _view("b.test", tls_fingerprint="FP")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=False, confidence=0.0))
+    assert result.relationship_type is not RelationshipType.SAME_AS
+    assert result.relationship_type is RelationshipType.REVIEW_REQUIRED
+
+
+def test_brand_name_lookalike_alone_stays_unrelated() -> None:
+    # Same brand key but no corroborating signal -> must NOT be lifted to review.
+    a = _view("acme.test", brand_keys=["acme"])
+    b = _view("acme.other", brand_keys=["acme"])
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=False, confidence=0.0))
+    assert result.relationship_type is RelationshipType.UNRELATED
+
+
+def test_no_identity_signal_creates_same_as() -> None:
+    # None of these signals may ever produce SAME_AS without a redirect.
+    cases = [
+        {"analytics_ids": ["UA-1-1"]},
+        {"gtm_ids": ["GTM-XYZ1"]},
+        {"tls_fingerprint": "F"},
+        {"org_names": ["acme inc"]},
+        {"copyright_owner": "acme inc"},
+        {"content_hash": "H"},
+        {"brand_keys": ["acme"]},
+        {"phone_numbers": ["+14155550000"]},
+        {"email_domains": ["corp.example"]},
+    ]
+    for over in cases:
+        a = _view("a.test", **over)
+        b = _view("b.test", **over)
+        result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.7))
+        assert result.relationship_type is not RelationshipType.SAME_AS, over
+
+
+def test_parent_product_with_identity_is_part_of_not_same_as() -> None:
+    # Product text types it PART_OF; shared identity must not flip it to SAME_AS.
+    a = _view(
+        "product.test",
+        normalized_text_excerpt="product is a product of parent",
+        analytics_ids=["UA-5-5"],
+    )
+    b = _view("parent.test", analytics_ids=["UA-5-5"])
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.PART_OF
+    assert result.primary_host == "parent.test"
+
+
+def test_acquired_with_identity_and_no_redirect_is_acquired_not_same_as() -> None:
+    a = _view(
+        "target.test",
+        normalized_text_excerpt="target was acquired by buyer",
+        tls_fingerprint="F",
+    )
+    b = _view("buyer.test", tls_fingerprint="F")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.ACQUIRED

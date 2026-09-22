@@ -64,8 +64,102 @@ class FeatureExtractor:
 
         self._extract_http(result, features, evidence, warnings, source_host)
         self._extract_dns(result, features, evidence)
+        self._extract_identity(result, features, evidence, source_host)
 
         return ExtractionOutput(features=features, evidence=evidence, warnings=warnings)
+
+    # -- Stage 2 identity signals --------------------------------------------
+
+    def _extract_identity(
+        self,
+        result: ObservationResult,
+        features: FeatureSet,
+        evidence: list[EvidenceDraft],
+        source_host: str | None,
+    ) -> None:
+        """Populate brand/organization and technical fingerprint identity facts.
+
+        Runs regardless of HTML so TLS facts are captured for HTTP-only or
+        non-HTML hosts too. All outputs are supporting identity evidence and never
+        assert that two domains are the same entity.
+        """
+        http = result.http
+        page_url = http.final_url or http.requested_url
+        html = http.html
+
+        names: list[str] = []
+        if html is not None:
+            # NB: og:title is a *page title*, not an organization name, and is
+            # intentionally excluded (the <title>-derived brand key already covers
+            # title text below).
+            for raw in (html.og_site_name, *html.jsonld_names, html.copyright_owner):
+                if not raw:
+                    continue
+                name = norm.normalize_text(raw)
+                # Require a real name (>= 3 letters) so a bare year/number that
+                # slipped through never becomes an organization-name signal.
+                if (
+                    name
+                    and sum(c.isalpha() for c in name) >= 3
+                    and name not in names
+                    and len(names) < _MAX_LIST
+                ):
+                    names.append(name)
+            if html.copyright_owner:
+                features.copyright_owner = norm.normalize_text(html.copyright_owner) or None
+            if html.favicon_href:
+                features.favicon_href = html.favicon_href[:_MAX_TEXT]
+            for aid in html.analytics_ids[:_MAX_LIST]:
+                bucket = features.gtm_ids if aid.startswith("GTM-") else features.analytics_ids
+                if aid not in bucket:
+                    bucket.append(aid)
+        features.org_names = names
+
+        brand_keys: list[str] = []
+        brand_sources = [*names]
+        if features.normalized_title:
+            brand_sources.append(features.normalized_title)
+        if source_host:
+            brand_sources.append(norm.domain_name_key(source_host))
+        for src in brand_sources:
+            key = norm.organization_key(src)
+            if key and key not in brand_keys:
+                brand_keys.append(key)
+        features.brand_keys = brand_keys
+
+        features.tls_sans = list(http.tls_sans)
+        features.tls_fingerprint = http.tls_fingerprint
+
+        self._emit_identity_evidence(features, evidence, page_url)
+
+    def _emit_identity_evidence(
+        self, features: FeatureSet, evidence: list[EvidenceDraft], page_url: str | None
+    ) -> None:
+        def add(code: EvidenceReasonCode, value: str) -> None:
+            evidence.append(
+                EvidenceDraft(
+                    reason_code=code,
+                    category=CATEGORY_OF[code],
+                    source_url=page_url,
+                    evidence_text=value[:_MAX_TEXT],
+                    raw_value=value[:_MAX_TEXT],
+                )
+            )
+
+        for name in features.org_names:
+            add(EvidenceReasonCode.ORGANIZATION_NAME, name)
+        for key in features.brand_keys:
+            add(EvidenceReasonCode.BRAND_NAME, key)
+        if features.copyright_owner:
+            add(EvidenceReasonCode.COPYRIGHT_OWNER, features.copyright_owner)
+        for aid in features.analytics_ids:
+            add(EvidenceReasonCode.ANALYTICS_ID, aid)
+        for gid in features.gtm_ids:
+            add(EvidenceReasonCode.GTM_ID, gid)
+        for san in features.tls_sans[:_MAX_LIST]:
+            add(EvidenceReasonCode.TLS_SAN, san)
+        if features.tls_fingerprint:
+            add(EvidenceReasonCode.TLS_CERTIFICATE, features.tls_fingerprint)
 
     # -- HTTP / HTML ----------------------------------------------------------
 

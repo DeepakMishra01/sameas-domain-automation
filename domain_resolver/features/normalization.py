@@ -150,6 +150,67 @@ def normalize_social_url(url: str) -> tuple[str, str] | None:
     return platform, urlunsplit(("https", host, path, "", ""))
 
 
+# Common legal-entity suffixes stripped when deriving a comparable brand key.
+# Removing these lets "Acme Inc" and "Acme Ltd" share a brand key without
+# claiming the two are the same legal entity.
+_LEGAL_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "inc",
+        "incorporated",
+        "llc",
+        "llp",
+        "ltd",
+        "limited",
+        "plc",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+        "gmbh",
+        "ag",
+        "sa",
+        "sas",
+        "srl",
+        "bv",
+        "nv",
+        "oy",
+        "ab",
+        "pvt",
+        "private",
+        "pte",
+        "group",
+        "holdings",
+        "holding",
+        "technologies",
+        "technology",
+        "solutions",
+        "services",
+        "labs",
+        "systems",
+        "global",
+        "international",
+        "ventures",
+        "capital",
+        "partners",
+    }
+)
+
+
+def organization_key(name: str) -> str:
+    """Return a comparable brand/organization key from a raw name.
+
+    Lowercases, drops punctuation, and removes trailing legal/generic suffixes
+    (Inc, Ltd, Technologies, …) so "Acme Inc" and "Acme Technologies" share the
+    key ``acme``. Deterministic; never asserts two names are the same entity.
+    Returns ``""`` when nothing meaningful remains.
+    """
+    tokens = tokenize(name)
+    while tokens and tokens[-1] in _LEGAL_SUFFIXES:
+        tokens.pop()
+    meaningful = [t for t in tokens if t not in _LEGAL_SUFFIXES] or tokens
+    return "".join(meaningful)
+
+
 def domain_name_key(host: str) -> str:
     """Return the host's name portion (all labels before the final one).
 

@@ -19,12 +19,12 @@ class Settings(BaseSettings):
 
     # Identifies which collector produced a stored observation. Defined once here
     # so historical observations remain attributable to a specific collector.
-    collector_version: str = Field(default="domain-observer-v1")
+    collector_version: str = Field(default="domain-observer-v2")
 
     # Identifies which deterministic feature extractor produced a feature snapshot
     # and its evidence, so historical feature versions stay attributable and can
     # coexist. Defined once here (Phase 4).
-    feature_extractor_version: str = Field(default="feature-extractor-v1")
+    feature_extractor_version: str = Field(default="feature-extractor-v2")
 
     # Identifies which deterministic organization matcher produced a relationship
     # assessment, so versions coexist and can be evaluated against CPT data

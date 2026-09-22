@@ -20,6 +20,10 @@ name/age/TLD/popularity. Pure: no network/DB.
 from __future__ import annotations
 
 from domain_resolver.classification.config import DEFAULT_CLASSIFIER_CONFIG, ClassifierConfig
+from domain_resolver.classification.identity_evidence import (
+    compute_identity_evidence,
+    has_strong_identity,
+)
 from domain_resolver.classification.reason_codes import ClassificationReasonCode
 from domain_resolver.classification.relationship_types import (
     PartOfSubtype,
@@ -161,27 +165,26 @@ class RelationshipClassifier:
             if typed is not None:
                 return typed
 
-        # --- Canonical: SAME_AS only if corroborated, else REVIEW -------------
+        # --- Canonical: never SAME_AS on its own -> REVIEW (redirect required) -
+        # Per the SOP, SAME_AS requires an observed redirect. A canonical tag to
+        # the peer — even with byte-identical content — is strong same-entity
+        # *evidence* but not a redirect, so it routes to REVIEW for confirmation.
         can_ab = _matches(view_a.features.canonical_domain, host_b)
         can_ba = _matches(view_b.features.canonical_domain, host_a)
         if can_ab or can_ba:
             source, target = (view_a, view_b) if can_ab else (view_b, view_a)
-            corroborated = not self._config.require_canonical_corroboration or _identical_content(
-                view_a.features, view_b.features
-            )
-            if corroborated:
-                return self._resolved(
+            direction = RelationshipDirection.A_TO_B if can_ab else RelationshipDirection.B_TO_A
+            if _identical_content(view_a.features, view_b.features):
+                return self._review(
                     view_a,
                     view_b,
-                    RelationshipType.SAME_AS,
-                    None,
-                    primary=target,
-                    secondary=source,
-                    confidence=self._config.confidence_canonical_same_as,
-                    reason_codes=[ClassificationReasonCode.CANONICAL_TO_PRIMARY_CORROBORATED],
-                    explanation=(
+                    match_result,
+                    [ClassificationReasonCode.CANONICAL_WITHOUT_REDIRECT],
+                    direction,
+                    (
                         f"{source.host} declares {target.host} canonical and their content is "
-                        f"identical, so they are the same entity; {target.host} is primary."
+                        f"identical — strong same-entity evidence, but SAME_AS requires an "
+                        f"observed redirect, so this needs review."
                     ),
                 )
             return self._review(
@@ -189,10 +192,10 @@ class RelationshipClassifier:
                 view_b,
                 match_result,
                 [ClassificationReasonCode.CANONICAL_WITHOUT_CORROBORATION],
-                RelationshipDirection.A_TO_B if can_ab else RelationshipDirection.B_TO_A,
+                direction,
                 (
                     f"{source.host} declares {target.host} canonical, but their content differs; "
-                    "a redirect or corroborating evidence is needed to confirm SAME_AS."
+                    "a redirect is needed to confirm SAME_AS."
                 ),
             )
 
@@ -211,7 +214,27 @@ class RelationshipClassifier:
                 ),
             )
 
-        # --- 5. UNRELATED -----------------------------------------------------
+        # --- 5. Strong identity but no redirect/typing -> REVIEW (SOP-safe) ---
+        # Identity evidence NEVER creates SAME_AS (the redirect gate above is the
+        # only path). It only recovers a pair from UNRELATED into REVIEW so a human
+        # can confirm a same-entity/same-operator relationship the web shows no
+        # redirect for. A brand-name look-alike alone does not qualify.
+        identity = compute_identity_evidence(view_a, view_b)
+        if has_strong_identity(identity):
+            signals = ", ".join(sorted({e.signal_type.value for e in identity}))
+            return self._review(
+                view_a,
+                view_b,
+                match_result,
+                [ClassificationReasonCode.IDENTITY_WITHOUT_REDIRECT],
+                RelationshipDirection.UNDETERMINED,
+                (
+                    f"{host_a} and {host_b} share strong identity evidence ({signals}) but no "
+                    "redirect was observed; SAME_AS cannot be asserted, so this needs review."
+                ),
+            )
+
+        # --- 6. UNRELATED -----------------------------------------------------
         confidence = round(1.0 - match_result.confidence, 4)
         return RelationshipClassification(
             classifier_version=self._config.version,

@@ -11,12 +11,9 @@ from enum import StrEnum
 
 
 class ClassificationReasonCode(StrEnum):
-    # -- SAME_AS (an observed redirect is the mandatory, sufficient signal) ----
+    # -- SAME_AS (an observed redirect is the ONLY sufficient signal) ---------
     REDIRECT_TO_PRIMARY = "REDIRECT_TO_PRIMARY"  # direct redirect to the peer
     REDIRECT_CHAIN_TO_PRIMARY = "REDIRECT_CHAIN_TO_PRIMARY"  # multi-hop redirect ends at peer
-    CANONICAL_TO_PRIMARY_CORROBORATED = (
-        "CANONICAL_TO_PRIMARY_CORROBORATED"  # canonical to peer + identical content
-    )
 
     # -- PART_OF (explicit on-page statement of a component relationship) ------
     PRODUCT_OF = "PRODUCT_OF"
@@ -35,10 +32,16 @@ class ClassificationReasonCode(StrEnum):
     # -- REVIEW_REQUIRED (a relationship exists but its type is undetermined) --
     RELATED_TYPE_UNDETERMINED = "RELATED_TYPE_UNDETERMINED"  # matcher relates them, no typing sig
     MUTUAL_REDIRECT_CONFLICT = "MUTUAL_REDIRECT_CONFLICT"  # each redirects to the other
+    CANONICAL_WITHOUT_REDIRECT = (
+        "CANONICAL_WITHOUT_REDIRECT"  # canonical to peer (even identical content): needs a redirect
+    )
     CANONICAL_WITHOUT_CORROBORATION = (
         "CANONICAL_WITHOUT_CORROBORATION"  # canonical to peer but content differs
     )
     CONTRADICTORY_TYPE_SIGNALS = "CONTRADICTORY_TYPE_SIGNALS"  # conflicting typing statements
+    IDENTITY_WITHOUT_REDIRECT = (
+        "IDENTITY_WITHOUT_REDIRECT"  # strong identity evidence but no redirect: needs review
+    )
 
     # -- UNRELATED ------------------------------------------------------------
     NO_CREDIBLE_RELATIONSHIP = "NO_CREDIBLE_RELATIONSHIP"
@@ -48,7 +51,6 @@ SAME_AS_CODES: frozenset[ClassificationReasonCode] = frozenset(
     {
         ClassificationReasonCode.REDIRECT_TO_PRIMARY,
         ClassificationReasonCode.REDIRECT_CHAIN_TO_PRIMARY,
-        ClassificationReasonCode.CANONICAL_TO_PRIMARY_CORROBORATED,
     }
 )
 

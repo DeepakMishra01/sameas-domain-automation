@@ -20,13 +20,10 @@ class ClassifierConfig(BaseModel):
 
     version: str = CLASSIFIER_VERSION
 
-    # A canonical tag pointing to the peer only yields SAME_AS when corroborated
-    # by identical content; on its own it is REVIEW_REQUIRED (per SOP §11).
-    require_canonical_corroboration: bool = True
-
-    # Confidence assigned to each outcome (provisional).
+    # Confidence assigned to each outcome (provisional). SAME_AS requires an
+    # observed redirect; a canonical tag alone never yields SAME_AS (it routes to
+    # REVIEW), so there is no canonical-SAME_AS confidence.
     confidence_redirect_same_as: float = 0.95
-    confidence_canonical_same_as: float = 0.80
     confidence_acquired: float = 0.85
     confidence_part_of_subtype: float = 0.80
     confidence_part_of_generic: float = 0.70

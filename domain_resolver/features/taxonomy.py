@@ -30,6 +30,14 @@ class EvidenceReasonCode(StrEnum):
     EMAIL_DOMAIN = "EMAIL_DOMAIN"
     PHONE = "PHONE"
     SOCIAL_PROFILE = "SOCIAL_PROFILE"
+    # IDENTITY (Stage 2: brand/organization and technical operator fingerprints)
+    ORGANIZATION_NAME = "ORGANIZATION_NAME"
+    BRAND_NAME = "BRAND_NAME"
+    COPYRIGHT_OWNER = "COPYRIGHT_OWNER"
+    ANALYTICS_ID = "ANALYTICS_ID"
+    GTM_ID = "GTM_ID"
+    TLS_SAN = "TLS_SAN"
+    TLS_CERTIFICATE = "TLS_CERTIFICATE"
     # WEBSITE
     TITLE = "TITLE"
     META_DESCRIPTION = "META_DESCRIPTION"
@@ -51,6 +59,13 @@ CATEGORY_OF: dict[EvidenceReasonCode, EvidenceCategory] = {
     EvidenceReasonCode.EMAIL_DOMAIN: EvidenceCategory.IDENTITY,
     EvidenceReasonCode.PHONE: EvidenceCategory.IDENTITY,
     EvidenceReasonCode.SOCIAL_PROFILE: EvidenceCategory.IDENTITY,
+    EvidenceReasonCode.ORGANIZATION_NAME: EvidenceCategory.IDENTITY,
+    EvidenceReasonCode.BRAND_NAME: EvidenceCategory.IDENTITY,
+    EvidenceReasonCode.COPYRIGHT_OWNER: EvidenceCategory.IDENTITY,
+    EvidenceReasonCode.ANALYTICS_ID: EvidenceCategory.IDENTITY,
+    EvidenceReasonCode.GTM_ID: EvidenceCategory.IDENTITY,
+    EvidenceReasonCode.TLS_SAN: EvidenceCategory.IDENTITY,
+    EvidenceReasonCode.TLS_CERTIFICATE: EvidenceCategory.IDENTITY,
     EvidenceReasonCode.TITLE: EvidenceCategory.WEBSITE,
     EvidenceReasonCode.META_DESCRIPTION: EvidenceCategory.WEBSITE,
     EvidenceReasonCode.CANONICAL_URL: EvidenceCategory.WEBSITE,
@@ -76,12 +91,18 @@ DNS_CODE_BY_RECORD_TYPE: dict[str, EvidenceReasonCode] = {
 # Documented future signals. Phase 3 does not currently collect enough factual
 # data to extract these deterministically; they are intentionally NOT fabricated.
 FUTURE_SIGNALS: dict[str, str] = {
-    "COMPANY_NAME": "Requires parsing/NER over titles; heuristic and not deterministic yet.",
-    "LEGAL_ENTITY": "Requires legal-suffix parsing over content; deferred.",
+    "LEGAL_ENTITY": (
+        "Distinct legal-entity name (vs brand) needs reliable legalName capture; "
+        "JSON-LD legalName is merged into ORGANIZATION_NAME for now."
+    ),
     "ADDRESS": "Requires address parsing over free text; deferred.",
     "OFFICIAL_WEBSITE_REFERENCE": (
         "A semantic refinement of CROSS_DOMAIN_REFERENCE (rel/link context); "
         "recorded as CROSS_DOMAIN_REFERENCE for now."
     ),
-    "TLS_CERTIFICATE": "Phase 3 does not capture TLS certificate details; deferred.",
+    "FAVICON_HASH": (
+        "Favicon href is captured, but a reliable SHARED_FAVICON needs the icon "
+        "bytes hashed (an extra fetch); deferred to avoid false matches on the "
+        "ubiquitous /favicon.ico path."
+    ),
 }
