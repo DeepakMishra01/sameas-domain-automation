@@ -10,3 +10,7 @@ dist/
 build/
 coverage.xml
 htmlcov/
+
+# Generated pipeline outputs (keep inputs, ignore results)
+data/my_results.*
+data/my_test.*
