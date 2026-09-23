@@ -14,9 +14,37 @@ Environment:
 from __future__ import annotations
 
 import os
+import time
 from typing import Protocol, runtime_checkable
 
 import httpx
+
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 3
+
+
+def _post_with_retry(
+    url: str, *, headers: dict[str, str], json: dict[str, object], timeout: float
+) -> httpx.Response:
+    """POST with a few retries on transient (429/5xx/transport) errors."""
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            response = httpx.post(url, headers=headers, json=json, timeout=timeout)
+            if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS - 1:
+                time.sleep(2.0 * (attempt + 1))
+                continue
+            response.raise_for_status()
+            return response
+        except httpx.TransportError as exc:  # network blip / read timeout
+            last_exc = exc
+            if attempt < _MAX_ATTEMPTS - 1:
+                time.sleep(2.0 * (attempt + 1))
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("request failed after retries")
 
 
 @runtime_checkable
@@ -93,6 +121,42 @@ class GeminiClient:
         return str(candidates[0]["content"]["parts"][0]["text"])
 
 
+class OpenAICompatibleClient:
+    """OpenAI chat-completions API client — works with NVIDIA NIM, OpenAI, etc.
+
+    NVIDIA's build.nvidia.com endpoint serves large open models (Llama 3.3 70B,
+    Qwen 2.5 72B, …) on their GPUs via this exact format, so the same client
+    covers it by pointing ``base_url`` at the NVIDIA endpoint.
+    """
+
+    def __init__(self, model: str, base_url: str, api_key: str, timeout: float = 90.0) -> None:
+        self._model = model
+        self._base = base_url.rstrip("/")
+        self._key = api_key
+        self._timeout = timeout
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def complete(self, system: str, user: str) -> str:
+        response = _post_with_retry(
+            f"{self._base}/chat/completions",
+            headers={"Authorization": f"Bearer {self._key}"},
+            json={
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0,
+            },
+            timeout=self._timeout,
+        )
+        choices = response.json()["choices"]
+        return str(choices[0]["message"]["content"])
+
+
 def build_client_from_env() -> LlmClient:
     """Construct the configured client from environment variables."""
     provider = os.environ.get("DERE_LLM_PROVIDER", "ollama").lower()
@@ -105,4 +169,20 @@ def build_client_from_env() -> LlmClient:
             raise RuntimeError("DERE_GEMINI_API_KEY is required for the gemini provider")
         model = os.environ.get("DERE_LLM_MODEL", "gemini-1.5-flash")
         return GeminiClient(model, key)
-    raise RuntimeError(f"unknown DERE_LLM_PROVIDER {provider!r} (use 'ollama' or 'gemini')")
+    if provider == "nvidia":
+        key = os.environ.get("DERE_NVIDIA_API_KEY") or os.environ.get("DERE_LLM_API_KEY", "")
+        if not key:
+            raise RuntimeError("DERE_NVIDIA_API_KEY is required for the nvidia provider")
+        model = os.environ.get("DERE_LLM_MODEL", "meta/llama-3.3-70b-instruct")
+        base = os.environ.get("DERE_LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+        return OpenAICompatibleClient(model, base, key)
+    if provider == "openai":
+        key = os.environ.get("DERE_LLM_API_KEY", "")
+        if not key:
+            raise RuntimeError("DERE_LLM_API_KEY is required for the openai provider")
+        model = os.environ.get("DERE_LLM_MODEL", "gpt-4o-mini")
+        base = os.environ.get("DERE_LLM_BASE_URL", "https://api.openai.com/v1")
+        return OpenAICompatibleClient(model, base, key)
+    raise RuntimeError(
+        f"unknown DERE_LLM_PROVIDER {provider!r} (use 'ollama', 'gemini', 'nvidia', or 'openai')"
+    )

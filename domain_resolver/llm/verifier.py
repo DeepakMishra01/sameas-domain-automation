@@ -8,6 +8,8 @@ breaks the pipeline.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any
 
 from domain_resolver.classification.relationship_types import PartOfSubtype, RelationshipType
@@ -71,7 +73,9 @@ class LlmRelationshipVerifier:
             raw = self._client.complete(
                 SYSTEM_PROMPT, build_user_prompt(view_a, view_b, deterministic_hint)
             )
-        except Exception:  # noqa: BLE001 - any transport error -> keep deterministic
+        except Exception as exc:  # noqa: BLE001 - any transport error -> keep deterministic
+            if os.environ.get("DERE_LLM_DEBUG"):
+                print(f"[llm] {type(exc).__name__}: {exc}", file=sys.stderr)
             return None
 
         data = _extract_json(raw)
