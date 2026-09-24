@@ -47,6 +47,14 @@ def test_prompt_includes_both_domains_and_facts() -> None:
     assert "assumed part of" in prompt
 
 
+def test_prompt_includes_web_evidence_when_provided() -> None:
+    a = _view("a.test", normalized_title="Acme")
+    b = _view("b.test", normalized_title="Beta")
+    prompt = build_user_prompt(a, b, "", web_evidence="- News: Beta acquired Acme in 2021")
+    assert "WEB SEARCH RESULTS" in prompt
+    assert "Beta acquired Acme" in prompt
+
+
 def test_verifier_parses_part_of_verdict() -> None:
     client = _StubClient(
         '{"relationship_type":"PART_OF","relationship_subtype":"PRODUCT",'
