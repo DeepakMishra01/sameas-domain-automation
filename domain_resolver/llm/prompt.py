@@ -68,9 +68,19 @@ def _facts(view: DomainFeatureView) -> str:
 
 
 def build_user_prompt(
-    view_a: DomainFeatureView, view_b: DomainFeatureView, deterministic_hint: str = ""
+    view_a: DomainFeatureView,
+    view_b: DomainFeatureView,
+    deterministic_hint: str = "",
+    web_evidence: str = "",
 ) -> str:
     parts = ["DOMAIN A", _facts(view_a), "", "DOMAIN B", _facts(view_b)]
+    if web_evidence:
+        parts += [
+            "",
+            "WEB SEARCH RESULTS (external context — use to confirm ownership/acquisition/"
+            "part-of that the pages alone don't show; ignore if irrelevant):",
+            web_evidence[:1500],
+        ]
     if deterministic_hint:
         parts += ["", f"(automated guess, may be wrong: {deterministic_hint})"]
     parts += ["", "Decide the relationship between DOMAIN A and DOMAIN B. Return only the JSON."]

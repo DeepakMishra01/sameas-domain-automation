@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 
+from domain_resolver.config.dotenv import load_env_file
 from domain_resolver.config.settings import get_settings
 from domain_resolver.features.results import FeatureSet
 from domain_resolver.infrastructure.database import (
@@ -33,6 +35,7 @@ from domain_resolver.repositories.sqlalchemy import (
     SqlAlchemyDomainRepository,
     SqlAlchemyObservationFeatureRepository,
 )
+from domain_resolver.search.serper import build_serper_from_env
 
 # Deterministic reason codes that are trustworthy -> never sent to the LLM.
 SOLID_CODES = {
@@ -76,21 +79,64 @@ def _needs_ai(row: dict[str, str]) -> bool:
     return first_code not in SOLID_CODES  # assumed / brand-identity / review / blank
 
 
+# Columns copied from a cached AI verdict when resuming.
+_AI_FIELDS = (
+    "relationship_type",
+    "relationship_subtype",
+    "primary_domain",
+    "secondary_domain",
+    "confidence",
+    "reason_codes",
+    "explanation",
+    "ai_confidence",
+    "ai_evidence_quote",
+    "ai_reasoning",
+)
+
+
+def _load_prior_ai(path: str) -> dict[tuple[str, str], dict[str, str]]:
+    """Load already-AI-decided pairs from a previous (possibly interrupted) output.
+
+    Lets a re-run resume: pairs already decided by the AI are reused instead of
+    re-calling the model (saves time and cost, and survives Ctrl+C / rate limits).
+    """
+    prior: dict[tuple[str, str], dict[str, str]] = {}
+    if not os.path.isfile(path):
+        return prior
+    try:
+        with open(path, newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if (row.get("decision_source") or "").startswith("AI") and row.get("domain1"):
+                    prior[(row["domain1"], row["domain2"])] = row
+    except (OSError, csv.Error):
+        pass
+    return prior
+
+
 def main() -> None:
+    load_env_file()  # pick up DB URL + LLM provider/model/key from .env if present
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
     parser.add_argument("output")
     parser.add_argument("--limit", type=int, default=100000)
+    parser.add_argument(
+        "--no-resume", action="store_true", help="ignore any existing output and redo every pair"
+    )
     args = parser.parse_args()
 
     with open(args.input, newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))[: args.limit]
     fieldnames = list(rows[0].keys()) + [c for c in EXTRA if c not in rows[0]] if rows else []
 
+    # Resume: reuse AI verdicts from a prior run of the same output file.
+    prior = {} if args.no_resume else _load_prior_ai(args.output)
     verifier = LlmRelationshipVerifier(build_client_from_env())
+    # Optional web-search fallback for low-confidence verdicts (Serper).
+    serper = build_serper_from_env()
+    serp_min = float(os.environ.get("DERE_SERP_MIN_CONFIDENCE", "0.5"))
     factory = create_session_factory(create_engine_from_settings(get_settings()))
 
-    verified = kept = failed = 0
+    verified = kept = failed = cached = searched = 0
     with (
         open(args.output, "w", newline="", encoding="utf-8") as handle,
         session_scope(factory) as session,
@@ -103,10 +149,45 @@ def main() -> None:
             if not row.get("domain1") or not row.get("domain2") or not _needs_ai(row):
                 row["decision_source"] = "DETERMINISTIC"
                 writer.writerow(row)
+                handle.flush()
                 kept += 1
                 continue
+            cached_row = prior.get((row["domain1"], row["domain2"]))
+            if cached_row is not None:
+                try:
+                    prior_conf = float(cached_row.get("ai_confidence") or 0.0)
+                except ValueError:
+                    prior_conf = 0.0
+                already_searched = cached_row.get("decision_source") == "AI+SEARCH"
+                # Reuse confident verdicts. But if search is enabled and this cached
+                # verdict was low-confidence (and not already search-assisted), fall
+                # through to re-verify it with a Google search.
+                reuse = not (serper is not None and prior_conf < serp_min and not already_searched)
+                if reuse:
+                    for field in _AI_FIELDS:
+                        if cached_row.get(field):
+                            row[field] = cached_row[field]
+                    row["decision_source"] = "AI (cached)"
+                    writer.writerow(row)
+                    handle.flush()
+                    cached += 1
+                    continue
             va, vb = _view(session, row["domain1"]), _view(session, row["domain2"])
-            verdict = verifier.verify(va, vb, row.get("explanation", "")) if va and vb else None
+            hint = row.get("explanation", "")
+            verdict = verifier.verify(va, vb, hint) if va and vb else None
+            used_search = False
+            # Low-confidence (or failed) -> Google-search the pair and re-decide.
+            if (
+                va
+                and vb
+                and serper is not None
+                and (verdict is None or verdict.confidence < serp_min)
+            ):
+                web = serper.search(f"{row['domain1']} {row['domain2']}")
+                if web:
+                    v2 = verifier.verify(va, vb, hint, web_evidence=web)
+                    if v2 is not None and (verdict is None or v2.confidence >= verdict.confidence):
+                        verdict, used_search = v2, True
             if verdict is None:
                 row["decision_source"] = "DETERMINISTIC (AI unavailable)"
                 failed += 1
@@ -120,19 +201,28 @@ def main() -> None:
                 if verdict.secondary_domain:
                     row["secondary_domain"] = verdict.secondary_domain
                 row["confidence"] = verdict.confidence
-                row["reason_codes"] = "AI_VERIFIED"
+                row["reason_codes"] = "AI_SEARCH_VERIFIED" if used_search else "AI_VERIFIED"
                 row["explanation"] = verdict.reasoning
-                row["decision_source"] = "AI"
+                row["decision_source"] = "AI+SEARCH" if used_search else "AI"
                 row["ai_confidence"] = verdict.confidence
                 row["ai_evidence_quote"] = verdict.evidence_quote
                 row["ai_reasoning"] = verdict.reasoning
                 verified += 1
+                if used_search:
+                    searched += 1
             writer.writerow(row)
+            handle.flush()
             print(
                 f"[{va and 'ok' or 'no-obs'}] {row['domain1']} / {row['domain2']} -> "
                 f"{row['relationship_type']} ({row['decision_source']})"
             )
-    print(f"\nDeterministic kept: {kept} | AI-verified: {verified} | AI unavailable: {failed}")
+    print(
+        f"\nDeterministic kept: {kept} | AI-verified: {verified} "
+        f"(of which web-search-assisted: {searched}) | "
+        f"AI reused (cached): {cached} | AI unavailable: {failed}"
+    )
+    if serper is None:
+        print("(Serper web-search fallback OFF — set DERE_SERPER_API_KEY to enable.)")
     print(f"Wrote -> {args.output}")
 
 

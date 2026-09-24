@@ -68,10 +68,12 @@ class LlmRelationshipVerifier:
         view_a: DomainFeatureView,
         view_b: DomainFeatureView,
         deterministic_hint: str = "",
+        web_evidence: str = "",
     ) -> AiVerdict | None:
         try:
             raw = self._client.complete(
-                SYSTEM_PROMPT, build_user_prompt(view_a, view_b, deterministic_hint)
+                SYSTEM_PROMPT,
+                build_user_prompt(view_a, view_b, deterministic_hint, web_evidence),
             )
         except Exception as exc:  # noqa: BLE001 - any transport error -> keep deterministic
             if os.environ.get("DERE_LLM_DEBUG"):
