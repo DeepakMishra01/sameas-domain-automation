@@ -29,7 +29,11 @@ distinct entity/site.
 - UNRELATED: there is NO real organisational relationship. IMPORTANT: a shop that \
 merely SELLS ON a marketplace, or a site merely BUILT ON / HOSTED BY a platform, is \
 UNRELATED to that marketplace/platform — sharing a platform's name in the footer is \
-NOT a relationship. Two different companies with a similar name are UNRELATED.
+NOT a relationship. Two different companies with a similar name are UNRELATED. Also \
+UNRELATED: if one or both pages are a PARKED / "domain for sale" / expired-domain / \
+broker page, or a hosting-provider or default-server placeholder (e.g. seghost, sedo, \
+parkingcrew, bodis, hugedomains, "welcome to nginx", "default web page"), the shared \
+content is the HOST or BROKER, not the two businesses — do NOT call it PART_OF/SAME_AS.
 - REVIEW_REQUIRED: the evidence is genuinely contradictory or insufficient to decide.
 
 Rules:

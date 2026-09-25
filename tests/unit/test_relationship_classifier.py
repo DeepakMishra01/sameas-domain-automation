@@ -238,6 +238,54 @@ def test_no_signal_defaults_to_assumed_part_of() -> None:
     assert result.confidence < 0.5  # clearly flagged as low confidence
 
 
+def test_for_sale_page_makes_unrelated_not_part_of() -> None:
+    # Both domains share a "domain for sale" broker placeholder. The shared
+    # identity is the broker, not a business relationship -> UNRELATED.
+    a = _view(
+        "spoke-one.test",
+        normalized_text_excerpt="this domain is for sale. buy this domain now.",
+        brand_keys=["seghost"],
+    )
+    b = _view(
+        "spoke-two.test",
+        normalized_text_excerpt="this domain is for sale. buy this domain now.",
+        brand_keys=["seghost"],
+    )
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.UNRELATED
+    assert ClassificationReasonCode.PARKED_OR_HOSTING_PAGE in result.reason_codes
+
+
+def test_broker_host_brand_shared_identity_is_unrelated() -> None:
+    # Both spokes only share the host/broker brand (seghost) via content -> UNRELATED,
+    # NOT PART_OF via SHARED_BRAND_IDENTITY.
+    a = _view("first.test", normalized_text_excerpt="hosted by seghost gmbh")
+    b = _view("second.test", normalized_text_excerpt="hosted by seghost gmbh")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.5))
+    assert result.relationship_type is RelationshipType.UNRELATED
+    assert ClassificationReasonCode.PARKED_OR_HOSTING_PAGE in result.reason_codes
+
+
+def test_redirect_still_wins_over_parked_guard() -> None:
+    # A real redirect must still be SAME_AS even if the target page looks parked;
+    # the guard only intercepts the weak identity/assumed branch.
+    a = _view("old.test", has_redirect=True, redirect_target_domain="new.test")
+    b = _view("new.test", normalized_text_excerpt="this domain is for sale")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.95))
+    assert result.relationship_type is RelationshipType.SAME_AS
+
+
+def test_explicit_part_of_statement_wins_over_parked_guard() -> None:
+    # An explicit "subsidiary of" statement types the pair before the guard runs.
+    a = _view(
+        "child.test",
+        normalized_text_excerpt="child is a subsidiary of parent. this domain is for sale.",
+    )
+    b = _view("parent.test")
+    result = CLASSIFIER.classify(a, b, _match(a, b, same=True, confidence=0.6))
+    assert result.relationship_type is RelationshipType.PART_OF
+
+
 # --------------------------------------------------------------- meta
 def test_result_is_canonical_order_and_deterministic() -> None:
     lo = UUID("00000000-0000-0000-0000-000000000001")

@@ -55,6 +55,15 @@ def test_prompt_includes_web_evidence_when_provided() -> None:
     assert "Beta acquired Acme" in prompt
 
 
+def test_system_prompt_covers_parked_and_broker_pages() -> None:
+    from domain_resolver.llm.prompt import SYSTEM_PROMPT
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "parked" in lowered
+    assert "for sale" in lowered
+    assert "broker" in lowered
+
+
 def test_verifier_parses_part_of_verdict() -> None:
     client = _StubClient(
         '{"relationship_type":"PART_OF","relationship_subtype":"PRODUCT",'

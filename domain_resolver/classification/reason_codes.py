@@ -48,6 +48,9 @@ class ClassificationReasonCode(StrEnum):
 
     # -- UNRELATED ------------------------------------------------------------
     NO_CREDIBLE_RELATIONSHIP = "NO_CREDIBLE_RELATIONSHIP"
+    PARKED_OR_HOSTING_PAGE = (
+        "PARKED_OR_HOSTING_PAGE"  # parked/for-sale/broker/host placeholder: shared host, not a biz
+    )
 
 
 SAME_AS_CODES: frozenset[ClassificationReasonCode] = frozenset(

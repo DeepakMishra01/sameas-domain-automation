@@ -55,6 +55,10 @@ SOLID_CODES = {
     "PART_OF_STATEMENT",
     "ACQUIRED_BY",
     "ACQUISITION_ANNOUNCEMENT",
+    # Parked / for-sale / broker / host placeholder -> deterministic UNRELATED.
+    # Kept out of the LLM: the shared host/broker content reliably fools the model
+    # into calling these PART_OF, so trust the deterministic guard instead.
+    "PARKED_OR_HOSTING_PAGE",
 }
 EXTRA = ["decision_source", "ai_confidence", "ai_evidence_quote", "ai_reasoning"]
 

@@ -20,6 +20,7 @@ name/age/TLD/popularity. Pure: no network/DB.
 from __future__ import annotations
 
 from domain_resolver.classification.config import DEFAULT_CLASSIFIER_CONFIG, ClassifierConfig
+from domain_resolver.classification.hosting_signals import is_hosting_or_parked
 from domain_resolver.classification.identity_evidence import (
     IdentitySignalType,
     compute_identity_evidence,
@@ -268,6 +269,25 @@ class RelationshipClassifier:
                 ),
             )
 
+        # --- Host / parked / for-sale / broker guard -> UNRELATED -------------
+        # No redirect, no explicit statement, no name/canonical relation fired: the
+        # only thing that could link this pair now is weak brand/identity evidence.
+        # If either page is a parked / for-sale / broker / hosting-provider
+        # placeholder, that shared "identity" is the host or broker, NOT a business
+        # relationship (many differently-named domains served by one host/broker are
+        # not part of one company). This is the one place UNRELATED is emitted.
+        if is_hosting_or_parked(view_a) or is_hosting_or_parked(view_b):
+            which = host_a if is_hosting_or_parked(view_a) else host_b
+            return self._unrelated(
+                view_a,
+                view_b,
+                (
+                    f"{which} is a parked / for-sale / hosting-provider placeholder page; any "
+                    f"shared branding is the host or broker, not a business relationship between "
+                    f"{host_a} and {host_b}."
+                ),
+            )
+
         # --- 4. Default: PART_OF (CPT candidates are related; no UNRELATED) ----
         # Everything that reaches here is a CPT candidate pair with no redirect and
         # no explicit statement. Rather than UNRELATED, it is treated as PART_OF
@@ -473,6 +493,27 @@ class RelationshipClassifier:
             confidence=confidence,
             confidence_band=self._band(confidence),
             reason_codes=reason_codes,
+            explanation=explanation,
+        )
+
+    def _unrelated(
+        self,
+        view_a: DomainFeatureView,
+        view_b: DomainFeatureView,
+        explanation: str,
+    ) -> RelationshipClassification:
+        confidence = self._config.confidence_unrelated_parked
+        return RelationshipClassification(
+            classifier_version=self._config.version,
+            domain_a_id=view_a.domain_id,
+            domain_b_id=view_b.domain_id,
+            domain_a=view_a.host,
+            domain_b=view_b.host,
+            relationship_type=RelationshipType.UNRELATED,
+            direction=RelationshipDirection.SYMMETRIC,
+            confidence=confidence,
+            confidence_band=self._band(confidence),
+            reason_codes=[ClassificationReasonCode.PARKED_OR_HOSTING_PAGE],
             explanation=explanation,
         )
 
