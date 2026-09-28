@@ -35,7 +35,8 @@ from domain_resolver.repositories.sqlalchemy import (
     SqlAlchemyDomainRepository,
     SqlAlchemyObservationFeatureRepository,
 )
-from domain_resolver.search.serper import build_serper_from_env
+from domain_resolver.search.query import build_relationship_queries
+from domain_resolver.search.serper import SerperClient, build_serper_from_env
 
 # Deterministic reason codes that are trustworthy -> never sent to the LLM.
 SOLID_CODES = {
@@ -81,6 +82,31 @@ def _view(session: object, host: str) -> DomainFeatureView | None:
 def _needs_ai(row: dict[str, str]) -> bool:
     first_code = (row.get("reason_codes") or "").split(",")[0]
     return first_code not in SOLID_CODES  # assumed / brand-identity / review / blank
+
+
+def _web_evidence(
+    serper: SerperClient,
+    view_a: DomainFeatureView,
+    view_b: DomainFeatureView,
+    max_queries: int,
+    cache: dict[str, str],
+) -> str:
+    """Run the (cached) Serper queries for a pair and return a combined evidence block.
+
+    Queries are built from the domains' entity names (not raw hostnames) and cover
+    the relationship + identity/knowledge-graph angles. Results are cached by query
+    string so duplicate pairs (and re-runs) never pay for the same search twice.
+    """
+    blocks: list[str] = []
+    for query in build_relationship_queries(view_a, view_b, max_queries=max_queries):
+        if query in cache:
+            result = cache[query]
+        else:
+            result = serper.search(query)
+            cache[query] = result
+        if result:
+            blocks.append(f"[search: {query}]\n{result}")
+    return "\n\n".join(blocks)
 
 
 # Columns copied from a cached AI verdict when resuming.
@@ -138,6 +164,8 @@ def main() -> None:
     # Optional web-search fallback for low-confidence verdicts (Serper).
     serper = build_serper_from_env()
     serp_min = float(os.environ.get("DERE_SERP_MIN_CONFIDENCE", "0.5"))
+    serp_queries = max(1, int(os.environ.get("DERE_SERP_QUERIES", "2")))
+    serp_cache: dict[str, str] = {}  # query -> result, so duplicates never re-search
     factory = create_session_factory(create_engine_from_settings(get_settings()))
 
     verified = kept = failed = cached = searched = 0
@@ -187,7 +215,7 @@ def main() -> None:
                 and serper is not None
                 and (verdict is None or verdict.confidence < serp_min)
             ):
-                web = serper.search(f"{row['domain1']} {row['domain2']}")
+                web = _web_evidence(serper, va, vb, serp_queries, serp_cache)
                 if web:
                     v2 = verifier.verify(va, vb, hint, web_evidence=web)
                     if v2 is not None and (verdict is None or v2.confidence >= verdict.confidence):

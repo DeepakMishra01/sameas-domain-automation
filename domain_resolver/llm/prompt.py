@@ -87,5 +87,13 @@ def build_user_prompt(
         ]
     if deterministic_hint:
         parts += ["", f"(automated guess, may be wrong: {deterministic_hint})"]
-    parts += ["", "Decide the relationship between DOMAIN A and DOMAIN B. Return only the JSON."]
+    parts += [
+        "",
+        "Question: Are DOMAIN A and DOMAIN B related? If yes, classify HOW: SAME_AS "
+        "(the same entity, or one redirects to the other), PART_OF (one is a product / "
+        "brand / subsidiary / division / regional site of the other), or ACQUIRED (one "
+        "company acquired the other). If they only share the same or a similar NAME but are "
+        "actually different, independent companies, answer UNRELATED. If the evidence is "
+        "genuinely insufficient or contradictory, answer REVIEW_REQUIRED. Return only the JSON.",
+    ]
     return "\n".join(parts)
