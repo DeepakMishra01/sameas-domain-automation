@@ -24,6 +24,7 @@ import openpyxl
 
 from domain_resolver.classification.classifier import RelationshipClassifier
 from domain_resolver.config.settings import get_settings
+from domain_resolver.dataset_columns import resolve_columns
 from domain_resolver.features.results import FeatureSet
 from domain_resolver.infrastructure.database import (
     create_engine_from_settings,
@@ -44,6 +45,7 @@ COLUMNS = [
     "domain2_raw",
     "domain1",
     "domain2",
+    "feed_sector",
     "relationship_type",
     "relationship_subtype",
     "primary_domain",
@@ -75,15 +77,40 @@ def _view(session: object, host: str) -> DomainFeatureView | None:
     )
 
 
-def _load_rows(path: str, limit: int) -> list[tuple[object, object, object]]:
+def _load_rows(path: str, limit: int) -> list[tuple[object, object, object, object]]:
+    """Return (company_id, domain1_raw, domain2_raw, feed_sector) rows.
+
+    Columns are resolved by header name, so a spreadsheet with or without a Feed
+    Sector column (in any position) is read correctly.
+    """
     if path.lower().endswith(".csv"):
         with open(path, newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
             return [
-                (r.get("company_id"), r.get("domain1_raw"), r.get("domain2_raw")) for r in reader
+                (
+                    r.get("company_id"),
+                    r.get("domain1_raw"),
+                    r.get("domain2_raw"),
+                    r.get("feed_sector"),
+                )
+                for r in csv.DictReader(handle)
             ][:limit]
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    return list(wb[wb.sheetnames[0]].iter_rows(values_only=True))[1:][:limit]
+    all_rows = list(wb[wb.sheetnames[0]].iter_rows(values_only=True))
+    if not all_rows:
+        return []
+    col = resolve_columns(all_rows[0])
+    sector_i = col.get("sector")
+    out: list[tuple[object, object, object, object]] = []
+    for raw in all_rows[1:][:limit]:
+        out.append(
+            (
+                raw[col["company"]] if len(raw) > col["company"] else None,
+                raw[col["domain1"]] if len(raw) > col["domain1"] else None,
+                raw[col["domain2"]] if len(raw) > col["domain2"] else None,
+                raw[sector_i] if sector_i is not None and len(raw) > sector_i else None,
+            )
+        )
+    return out
 
 
 def main() -> None:
@@ -109,6 +136,7 @@ def main() -> None:
             out["company_id"] = "" if raw[0] is None else str(raw[0]).replace(".0", "")
             out["domain1_raw"] = str(raw[1] or "").strip()
             out["domain2_raw"] = str(raw[2] or "").strip()
+            out["feed_sector"] = str(raw[3] or "").strip()
             try:
                 host_a = normalize_domain(out["domain1_raw"])
                 host_b = normalize_domain(out["domain2_raw"])

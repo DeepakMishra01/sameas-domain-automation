@@ -23,6 +23,7 @@ from openpyxl.utils import get_column_letter
 DISPLAY = [
     "domain1",
     "domain2",
+    "feed_sector",
     "relationship_type",
     "relationship_subtype",
     "primary_domain",
@@ -36,6 +37,7 @@ DISPLAY = [
     "reason_codes",
     "explanation",
     "decision_source",
+    "qc_agree",
     "ai_confidence",
     "ai_evidence_quote",
     "ai_reasoning",
@@ -52,6 +54,7 @@ COLORS = {
 WIDTHS = {
     "domain1": 30,
     "domain2": 28,
+    "feed_sector": 24,
     "relationship_type": 16,
     "relationship_subtype": 16,
     "primary_domain": 28,
@@ -64,7 +67,8 @@ WIDTHS = {
     "confidence_band": 14,
     "reason_codes": 24,
     "explanation": 60,
-    "decision_source": 16,
+    "decision_source": 22,
+    "qc_agree": 16,
     "ai_confidence": 12,
     "ai_evidence_quote": 45,
     "ai_reasoning": 55,

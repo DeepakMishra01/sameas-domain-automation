@@ -17,7 +17,7 @@ Layers:
      DERE_SERP_ALL=1. In QC-on-all mode, agreement confirms the verdict and a
      disagreement routes the pair to REVIEW_REQUIRED (a proven redirect is kept).
 
-Runs pairs in parallel (network-bound work); tune with --workers (default 12).
+Runs pairs in parallel (network-bound work); tune with --workers (default 4).
 
 Usage:
   DERE_DATABASE_URL=... [DERE_LLM_PROVIDER=ollama DERE_LLM_MODEL=qwen2.5:14b-instruct] \\
@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
+from domain_resolver.classification.relationship_types import RelationshipType
 from domain_resolver.config.dotenv import load_env_file
 from domain_resolver.config.settings import get_settings
 from domain_resolver.features.results import FeatureSet
@@ -141,7 +142,27 @@ def _web_evidence(
 def _apply_verdict(
     row: dict[str, str], verdict: AiVerdict, *, source: str, reason_code: str
 ) -> None:
-    """Write an AiVerdict's fields onto the output row."""
+    """Write an AiVerdict's fields onto the output row.
+
+    Sector gate: an AI SAME_AS is only reachable without a redirect (redirects are
+    solid and never sent to the LLM). If the model judged the two domains to be in
+    different sectors (``same_sector is False``), they cannot be the same company,
+    so the SAME_AS is refused and the pair is flagged for review instead.
+    """
+    if verdict.relationship_type is RelationshipType.SAME_AS and verdict.same_sector is False:
+        row["relationship_type"] = "REVIEW_REQUIRED"
+        row["relationship_subtype"] = ""
+        row["confidence"] = str(verdict.confidence)
+        row["reason_codes"] = "SECTOR_MISMATCH_NOT_SAMEAS"
+        row["explanation"] = (
+            "AI judged SAME_AS but the two domains are in different sectors; different "
+            f"sectors cannot be the same company, so flagged for review. {verdict.reasoning}"
+        )
+        row["decision_source"] = f"{source} (sector gate)"
+        row["ai_confidence"] = str(verdict.confidence)
+        row["ai_evidence_quote"] = verdict.evidence_quote
+        row["ai_reasoning"] = verdict.reasoning
+        return
     row["relationship_type"] = verdict.relationship_type.value
     row["relationship_subtype"] = (
         verdict.relationship_subtype.value if verdict.relationship_subtype else ""
@@ -225,6 +246,7 @@ def _process_row(
         row["decision_source"] = "DETERMINISTIC"
         return row, ["kept"]
     needs_ai = _needs_ai(row)
+    sector = row.get("feed_sector", "")  # Domain-1 sector, gates non-redirect SAME_AS
 
     with session_scope(factory) as session:  # type: ignore[arg-type]
         # ---- QC-on-all mode: cross-check every pair with a Serper web search -----
@@ -234,7 +256,7 @@ def _process_row(
             hint = row.get("explanation", "")
             # Base verdict: AI for uncertain rows, deterministic for solid ones.
             if needs_ai and va and vb:
-                base = cfg.verifier.verify(va, vb, hint)
+                base = cfg.verifier.verify(va, vb, hint, domain_a_sector=sector)
                 if base is not None:
                     _apply_verdict(row, base, source="AI", reason_code="AI_VERIFIED")
                     keys.append("verified")
@@ -253,7 +275,7 @@ def _process_row(
                 )
                 if web:
                     keys.append("searched")
-                    qc = cfg.verifier.verify(va, vb, hint, web_evidence=web)
+                    qc = cfg.verifier.verify(va, vb, hint, web_evidence=web, domain_a_sector=sector)
             if qc is None:
                 row["qc_agree"] = "no-evidence"
                 keys.append("qc_noevidence")
@@ -344,7 +366,7 @@ def _process_row(
                 return row, ["cached"]
         va, vb = _view(session, d1), _view(session, d2)
         hint = row.get("explanation", "")
-        verdict = cfg.verifier.verify(va, vb, hint) if va and vb else None
+        verdict = cfg.verifier.verify(va, vb, hint, domain_a_sector=sector) if va and vb else None
         used_search = False
         # Low-confidence (or failed) -> Google-search the pair and re-decide.
         if (
@@ -357,7 +379,7 @@ def _process_row(
                 cfg.serper, va, vb, cfg.serp_queries, cfg.serp_cache, cfg.cache_lock
             )
             if web:
-                v2 = cfg.verifier.verify(va, vb, hint, web_evidence=web)
+                v2 = cfg.verifier.verify(va, vb, hint, web_evidence=web, domain_a_sector=sector)
                 if v2 is not None and (verdict is None or v2.confidence >= verdict.confidence):
                     verdict, used_search = v2, True
         if verdict is None:

@@ -111,3 +111,24 @@ def test_confidence_is_clamped() -> None:
     client = _StubClient('{"relationship_type":"SAME_AS","confidence":5}')
     verdict = LlmRelationshipVerifier(client).verify(_view("a.test"), _view("b.test"))
     assert verdict is not None and verdict.confidence == 1.0
+
+
+def test_same_sector_is_parsed_tristate() -> None:
+    for raw, expected in (
+        ('{"relationship_type":"PART_OF","same_sector":true}', True),
+        ('{"relationship_type":"UNRELATED","same_sector":false}', False),
+        ('{"relationship_type":"PART_OF","same_sector":"different"}', False),
+        ('{"relationship_type":"PART_OF"}', None),
+    ):
+        verdict = LlmRelationshipVerifier(_StubClient(raw)).verify(_view("a.test"), _view("b.test"))
+        assert verdict is not None and verdict.same_sector is expected
+
+
+def test_prompt_includes_sector_and_rule() -> None:
+    from domain_resolver.llm.prompt import SYSTEM_PROMPT, build_user_prompt
+
+    a = _view("a.test", normalized_title="Acme")
+    b = _view("b.test", normalized_title="Beta")
+    prompt = build_user_prompt(a, b, domain_a_sector="Big Data Analytics")
+    assert "Big Data Analytics" in prompt
+    assert "same_sector" in SYSTEM_PROMPT

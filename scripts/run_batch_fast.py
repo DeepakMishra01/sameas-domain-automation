@@ -25,6 +25,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from domain_resolver.config.settings import get_settings
+from domain_resolver.dataset_columns import resolve_columns
 from domain_resolver.features.extractor import FeatureExtractor
 from domain_resolver.features.service import run_feature_extraction
 from domain_resolver.infrastructure.database import create_session_factory, session_scope
@@ -147,7 +148,10 @@ def main() -> None:
 
     workbook = openpyxl.load_workbook(args.input, read_only=True, data_only=True)
     sheet = workbook[workbook.sheetnames[0]]
-    raw_rows = list(sheet.iter_rows(values_only=True))[1:][args.start : args.start + args.limit]
+    all_rows = list(sheet.iter_rows(values_only=True))
+    col = resolve_columns(all_rows[0]) if all_rows else {"company": 0, "domain1": 1, "domain2": 2}
+    ci, i1, i2 = col["company"], col["domain1"], col["domain2"]
+    raw_rows = all_rows[1:][args.start : args.start + args.limit]
 
     settings = get_settings()
     engine = create_engine(
@@ -162,8 +166,9 @@ def main() -> None:
     invalid: list[dict[str, object]] = []
     hosts: set[str] = set()
     for raw in raw_rows:
-        company_id = "" if raw[0] is None else str(raw[0]).replace(".0", "")
-        raw1, raw2 = str(raw[1] or "").strip(), str(raw[2] or "").strip()
+        company_id = "" if raw[ci] is None else str(raw[ci]).replace(".0", "")
+        raw1 = str(raw[i1] or "").strip() if len(raw) > i1 else ""
+        raw2 = str(raw[i2] or "").strip() if len(raw) > i2 else ""
         try:
             host_a, host_b = normalize_domain(raw1), normalize_domain(raw2)
         except ValueError as exc:

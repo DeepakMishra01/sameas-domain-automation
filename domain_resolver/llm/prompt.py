@@ -45,10 +45,17 @@ surviving brand) and secondary_domain (the child / acquired / alias).
 supports the decision (empty only for REVIEW_REQUIRED/UNRELATED when nothing links them).
 - confidence is 0.0-1.0.
 
+Sector rule:
+- If a sector for DOMAIN A is given, judge whether DOMAIN B operates in the SAME \
+broad sector/industry (allow for different wording of the same space). Set \
+"same_sector" true/false accordingly (null if no sector was given or you cannot \
+tell). Two domains in clearly DIFFERENT sectors are NOT the same company: never \
+answer SAME_AS in that case (they may still be UNRELATED or, rarely, PART_OF).
+
 Respond with ONLY a JSON object of this exact shape and nothing else:
 {"relationship_type": "...", "relationship_subtype": "..."|null, "primary_domain": \
 "..."|null, "secondary_domain": "..."|null, "evidence_quote": "...", "reasoning": \
-"one or two sentences", "confidence": 0.0}"""
+"one or two sentences", "confidence": 0.0, "same_sector": true|false|null}"""
 
 
 def _facts(view: DomainFeatureView) -> str:
@@ -76,8 +83,12 @@ def build_user_prompt(
     view_b: DomainFeatureView,
     deterministic_hint: str = "",
     web_evidence: str = "",
+    domain_a_sector: str = "",
 ) -> str:
-    parts = ["DOMAIN A", _facts(view_a), "", "DOMAIN B", _facts(view_b)]
+    facts_a = _facts(view_a)
+    if domain_a_sector:
+        facts_a += f"\nsector: {domain_a_sector}"
+    parts = ["DOMAIN A", facts_a, "", "DOMAIN B", _facts(view_b)]
     if web_evidence:
         parts += [
             "",
