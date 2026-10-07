@@ -37,6 +37,9 @@ class ClassifierConfig(BaseModel):
     confidence_part_of_identity: float = 0.55
     # No strong signal but a CPT candidate -> assumed part-of (flagged, low conf).
     confidence_part_of_assumed: float = 0.3
+    # One page is a parked / for-sale / broker / host placeholder -> UNRELATED
+    # (the shared identity is the host/broker, not the two businesses).
+    confidence_unrelated_parked: float = 0.9
 
     # Confidence banding (provisional; not statistically validated).
     high_threshold: float = 0.80

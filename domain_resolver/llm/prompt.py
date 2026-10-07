@@ -29,7 +29,11 @@ distinct entity/site.
 - UNRELATED: there is NO real organisational relationship. IMPORTANT: a shop that \
 merely SELLS ON a marketplace, or a site merely BUILT ON / HOSTED BY a platform, is \
 UNRELATED to that marketplace/platform — sharing a platform's name in the footer is \
-NOT a relationship. Two different companies with a similar name are UNRELATED.
+NOT a relationship. Two different companies with a similar name are UNRELATED. Also \
+UNRELATED: if one or both pages are a PARKED / "domain for sale" / expired-domain / \
+broker page, or a hosting-provider or default-server placeholder (e.g. seghost, sedo, \
+parkingcrew, bodis, hugedomains, "welcome to nginx", "default web page"), the shared \
+content is the HOST or BROKER, not the two businesses — do NOT call it PART_OF/SAME_AS.
 - REVIEW_REQUIRED: the evidence is genuinely contradictory or insufficient to decide.
 
 Rules:
@@ -41,10 +45,17 @@ surviving brand) and secondary_domain (the child / acquired / alias).
 supports the decision (empty only for REVIEW_REQUIRED/UNRELATED when nothing links them).
 - confidence is 0.0-1.0.
 
+Sector rule:
+- If a sector for DOMAIN A is given, judge whether DOMAIN B operates in the SAME \
+broad sector/industry (allow for different wording of the same space). Set \
+"same_sector" true/false accordingly (null if no sector was given or you cannot \
+tell). Two domains in clearly DIFFERENT sectors are NOT the same company: never \
+answer SAME_AS in that case (they may still be UNRELATED or, rarely, PART_OF).
+
 Respond with ONLY a JSON object of this exact shape and nothing else:
 {"relationship_type": "...", "relationship_subtype": "..."|null, "primary_domain": \
 "..."|null, "secondary_domain": "..."|null, "evidence_quote": "...", "reasoning": \
-"one or two sentences", "confidence": 0.0}"""
+"one or two sentences", "confidence": 0.0, "same_sector": true|false|null}"""
 
 
 def _facts(view: DomainFeatureView) -> str:
@@ -72,8 +83,12 @@ def build_user_prompt(
     view_b: DomainFeatureView,
     deterministic_hint: str = "",
     web_evidence: str = "",
+    domain_a_sector: str = "",
 ) -> str:
-    parts = ["DOMAIN A", _facts(view_a), "", "DOMAIN B", _facts(view_b)]
+    facts_a = _facts(view_a)
+    if domain_a_sector:
+        facts_a += f"\nsector: {domain_a_sector}"
+    parts = ["DOMAIN A", facts_a, "", "DOMAIN B", _facts(view_b)]
     if web_evidence:
         parts += [
             "",
@@ -83,5 +98,13 @@ def build_user_prompt(
         ]
     if deterministic_hint:
         parts += ["", f"(automated guess, may be wrong: {deterministic_hint})"]
-    parts += ["", "Decide the relationship between DOMAIN A and DOMAIN B. Return only the JSON."]
+    parts += [
+        "",
+        "Question: Are DOMAIN A and DOMAIN B related? If yes, classify HOW: SAME_AS "
+        "(the same entity, or one redirects to the other), PART_OF (one is a product / "
+        "brand / subsidiary / division / regional site of the other), or ACQUIRED (one "
+        "company acquired the other). If they only share the same or a similar NAME but are "
+        "actually different, independent companies, answer UNRELATED. If the evidence is "
+        "genuinely insufficient or contradictory, answer REVIEW_REQUIRED. Return only the JSON.",
+    ]
     return "\n".join(parts)

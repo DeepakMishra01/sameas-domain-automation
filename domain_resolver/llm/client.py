@@ -14,32 +14,59 @@ Environment:
 from __future__ import annotations
 
 import os
+import random
 import time
 from typing import Protocol, runtime_checkable
 
 import httpx
 
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
-_MAX_ATTEMPTS = 3
+_MAX_ATTEMPTS = 5
+_BASE_BACKOFF = 2.0
+_MAX_BACKOFF = 30.0
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """Parse a Retry-After header (seconds form) if the server sent one."""
+    value = response.headers.get("Retry-After")
+    if not value:
+        return None
+    try:
+        seconds: float = float(value)
+    except ValueError:
+        return None
+    return max(0.0, seconds)
+
+
+def _backoff_delay(attempt: int) -> float:
+    """Exponential backoff (2, 4, 8, 16 … capped) plus jitter to de-sync workers."""
+    return float(min(_MAX_BACKOFF, _BASE_BACKOFF * (2**attempt)) + random.uniform(0.0, 1.0))
 
 
 def _post_with_retry(
     url: str, *, headers: dict[str, str], json: dict[str, object], timeout: float
 ) -> httpx.Response:
-    """POST with a few retries on transient (429/5xx/transport) errors."""
+    """POST with retries on transient (429/5xx/transport) errors.
+
+    Uses exponential backoff with jitter and honours a ``Retry-After`` header, so
+    concurrent workers hitting a rate limit back off (and de-synchronise) instead
+    of hammering the API. Jitter is what stops many parallel workers from retrying
+    in lockstep and re-tripping the limit.
+    """
     last_exc: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
             response = httpx.post(url, headers=headers, json=json, timeout=timeout)
             if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS - 1:
-                time.sleep(2.0 * (attempt + 1))
+                delay = _retry_after_seconds(response)
+                time.sleep(delay if delay is not None else _backoff_delay(attempt))
                 continue
             response.raise_for_status()
             return response
         except httpx.TransportError as exc:  # network blip / read timeout
             last_exc = exc
             if attempt < _MAX_ATTEMPTS - 1:
-                time.sleep(2.0 * (attempt + 1))
+                time.sleep(_backoff_delay(attempt))
                 continue
             raise
     if last_exc is not None:
