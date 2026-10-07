@@ -80,6 +80,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("results_csv")
     parser.add_argument("output_xlsx")
+    parser.add_argument(
+        "--no-sort",
+        action="store_true",
+        help="keep the input CSV row order (default: sort by relationship type)",
+    )
     args = parser.parse_args()
 
     with open(args.results_csv, newline="", encoding="utf-8") as handle:
@@ -88,7 +93,10 @@ def main() -> None:
         raise SystemExit("no rows in results CSV")
 
     cols = [c for c in DISPLAY if c in rows[0]]
-    rows.sort(key=lambda r: (ORDER.get(r.get("relationship_type", ""), 9), r.get("domain1", "")))
+    if not args.no_sort:
+        rows.sort(
+            key=lambda r: (ORDER.get(r.get("relationship_type", ""), 9), r.get("domain1", ""))
+        )
 
     wb = Workbook()
     ws = wb.active

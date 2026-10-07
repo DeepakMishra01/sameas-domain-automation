@@ -415,6 +415,11 @@ def main() -> None:
     parser.add_argument(
         "--no-resume", action="store_true", help="ignore any existing output and redo every pair"
     )
+    parser.add_argument(
+        "--keep-order",
+        action="store_true",
+        help="write output rows in the same order as the input (default: completion order)",
+    )
     args = parser.parse_args()
 
     with open(args.input, newline="", encoding="utf-8") as handle:
@@ -458,18 +463,29 @@ def main() -> None:
     with open(args.output, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
+        buffer: dict[int, dict[str, str]] = {}  # only used when --keep-order
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            futures = {pool.submit(_process_row, factory, row, cfg): row for row in rows}
+            futures = {
+                pool.submit(_process_row, factory, row, cfg): i for i, row in enumerate(rows)
+            }
             for future in as_completed(futures):
+                idx = futures[future]
                 out_row, keys = future.result()
                 counts.update(keys)
-                writer.writerow(out_row)
-                handle.flush()
                 done += 1
                 print(
                     f"({done}/{total}) {out_row.get('domain1')} / {out_row.get('domain2')} -> "
                     f"{out_row.get('relationship_type')} ({out_row.get('decision_source')})"
                 )
+                if args.keep_order:
+                    buffer[idx] = out_row
+                else:
+                    writer.writerow(out_row)
+                    handle.flush()
+        if args.keep_order:  # emit in input order once every pair is done
+            for i in range(len(rows)):
+                writer.writerow(buffer[i])
+            handle.flush()
     if cfg.serp_all:
         print(
             f"\nQC-on-all: AI-verified {counts['verified']} | searched {counts['searched']} | "

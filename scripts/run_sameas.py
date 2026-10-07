@@ -51,6 +51,9 @@ def main() -> None:
     parser.add_argument("--skip-crawl", action="store_true", help="reuse stored observations")
     parser.add_argument("--qc-all", action="store_true", help="Serper web QC on every pair")
     parser.add_argument("--resume", action="store_true", help="reuse prior AI verdicts")
+    parser.add_argument(
+        "--keep-order", action="store_true", help="output rows in the same order as the input"
+    )
     args = parser.parse_args()
 
     out = Path(args.output)
@@ -92,9 +95,14 @@ def main() -> None:
     ai_args = ["ai_verify.py", classify_csv, ai_csv, "--workers", ai_workers]
     if not args.resume:
         ai_args.append("--no-resume")
+    if args.keep_order:
+        ai_args.append("--keep-order")
     _run("Step 3/4  Verify the uncertain pairs (AI + Google)", ai_args, env)
 
-    _run("Step 4/4  Build the Excel report", ["results_to_excel.py", ai_csv, args.output], env)
+    excel_args = ["results_to_excel.py", ai_csv, args.output]
+    if args.keep_order:
+        excel_args.append("--no-sort")
+    _run("Step 4/4  Build the Excel report", excel_args, env)
 
     print(f"\nAll done. Final report: {args.output}")
 
