@@ -37,6 +37,7 @@ from domain_resolver.config.settings import get_settings
 from domain_resolver.features.extractor import FeatureExtractor
 from domain_resolver.features.service import run_feature_extraction
 from domain_resolver.geo.category import categorize, country_count
+from domain_resolver.geo.results import GeoVerdict
 from domain_resolver.geo.verifier import GeoVerifier
 from domain_resolver.infrastructure.database import create_session_factory, session_scope
 from domain_resolver.llm.client import build_client_from_env
@@ -101,8 +102,9 @@ def _columns(header: tuple) -> dict[str, int]:
 class _Config:
     verifier: GeoVerifier
     serper: SerperClient | None
-    serp_queries: int
+    min_conf: float
     serp_cache: dict[str, str]
+    stats: dict[str, int]
     cache_lock: threading.Lock
 
 
@@ -125,33 +127,81 @@ def _observe(session: object, company_id: object, host: str) -> DomainFeatureVie
     return DomainFeatureView.from_snapshot(snaps[-1], host) if snaps else None
 
 
-def _geo_queries(label: str, host: str) -> list[str]:
-    """Targeted searches for HQ and the countries served, in priority order."""
-    return [
-        f'{label} {host} headquarters OR "head office" OR HQ location',
-        f"{label} linkedin headquarters OR locations OR offices",
-        f'{label} {host} offices OR locations OR countries OR "where we operate"',
-        f"{label} wikipedia headquarters countries operations",
-    ]
+def _resolved(v: GeoVerdict | None, min_conf: float) -> bool:
+    """A verdict is good enough to stop escalating: has HQ + >=1 country, confident."""
+    return v is not None and bool(v.headquarters) and bool(v.countries) and v.confidence >= min_conf
 
 
-def _geo_evidence(cfg: _Config, company: str, host: str) -> str:
+def _score(v: GeoVerdict | None, min_conf: float) -> tuple[int, int, float]:
+    if v is None:
+        return (0, 0, 0.0)
+    return (1 if _resolved(v, min_conf) else 0, len(v.countries), v.confidence)
+
+
+def _best(a: GeoVerdict | None, b: GeoVerdict | None, min_conf: float) -> GeoVerdict | None:
+    """Pick the stronger verdict (resolved > more countries > higher confidence)."""
+    return a if _score(a, min_conf) >= _score(b, min_conf) else b
+
+
+def _cached_search(cfg: _Config, query: str) -> str:
+    """One Serper search, cached by query. Counts only real (cache-miss) calls."""
     if cfg.serper is None:
         return ""
+    with cfg.cache_lock:
+        if query in cfg.serp_cache:
+            return cfg.serp_cache[query]
+    res = cfg.serper.search(query)
+    with cfg.cache_lock:
+        cfg.serp_cache.setdefault(query, res)
+        cfg.stats["searches"] = cfg.stats.get("searches", 0) + 1
+    return res
+
+
+def _looks_multinational(v: GeoVerdict | None) -> bool:
+    return v is not None and len(v.countries) >= 2
+
+
+def _geo_verdict(cfg: _Config, view: DomainFeatureView, company: str, host: str) -> tuple:
+    """Escalation ladder: website first, then search only when needed.
+
+    Returns (verdict, source). Keeps Serper cheap: a company that resolves from its
+    own website costs 0 searches; one combined search handles most of the rest;
+    multinational or still-thin companies escalate to LinkedIn + Wikipedia + a
+    worldwide-operations query to build the FULL country list.
+    """
     label = company or host
-    queries = _geo_queries(label, host)[: max(1, cfg.serp_queries)]
-    blocks: list[str] = []
-    for q in queries:
-        with cfg.cache_lock:
-            hit = q in cfg.serp_cache
-            res = cfg.serp_cache.get(q, "")
-        if not hit:
-            res = cfg.serper.search(q)
-            with cfg.cache_lock:
-                cfg.serp_cache[q] = res
-        if res:
-            blocks.append(f"[search: {q}]\n{res}")
-    return "\n\n".join(blocks)
+
+    def reverify(parts: list[str]) -> GeoVerdict | None:
+        return cfg.verifier.verify(view, company, "\n\n".join(p for p in parts if p))
+
+    verdict = cfg.verifier.verify(view, company, "")
+    source = "website"
+    if cfg.serper is None:
+        return verdict, source
+
+    # Tier 1: one combined search, unless the website already resolved a single geo.
+    if not _resolved(verdict, cfg.min_conf) or _looks_multinational(verdict):
+        parts = [_cached_search(cfg, f"{label} {host} headquarters locations countries served")]
+        verdict = _best(verdict, reverify(parts), cfg.min_conf)
+        source = "website + 1 search"
+        # Tier 2: escalate for multinationals or still-thin results -> fuller list.
+        if not _resolved(verdict, cfg.min_conf) or _looks_multinational(verdict):
+            parts.append(
+                _cached_search(cfg, f"{label} linkedin headquarters OR locations OR offices")
+            )
+            parts.append(
+                _cached_search(cfg, f"{label} wikipedia headquarters countries operations")
+            )
+            parts.append(
+                _cached_search(
+                    cfg,
+                    f'{label} {host} "countries" OR "global presence" '
+                    f'OR "operations in" OR "offices" worldwide',
+                )
+            )
+            verdict = _best(verdict, reverify(parts), cfg.min_conf)
+            source = "website + searches"
+    return verdict, source
 
 
 def _process(factory: object, row: dict[str, str], cfg: _Config) -> dict[str, str]:
@@ -181,8 +231,7 @@ def _process(factory: object, row: dict[str, str], cfg: _Config) -> dict[str, st
                 out["category"] = "Unknown"
                 out["note"] = "no observation (site did not load)"
                 return out
-            web = _geo_evidence(cfg, row["company_name"], host)
-            verdict = cfg.verifier.verify(view, row["company_name"], web)
+            verdict, source = _geo_verdict(cfg, view, row["company_name"], host)
     except Exception as exc:  # noqa: BLE001 - record and continue
         out["category"] = "Unknown"
         out["note"] = f"error: {type(exc).__name__}: {exc}"
@@ -196,7 +245,7 @@ def _process(factory: object, row: dict[str, str], cfg: _Config) -> dict[str, st
     out["category"] = categorize(verdict.countries)
     out["headquarters"] = verdict.headquarters or ""
     out["confidence"] = str(verdict.confidence)
-    out["source"] = "website + web search" if web else "website"
+    out["source"] = source
     out["evidence_quote"] = verdict.evidence_quote
     out["reasoning"] = verdict.reasoning
     return out
@@ -280,8 +329,9 @@ def main() -> None:
     cfg = _Config(
         verifier=GeoVerifier(build_client_from_env()),
         serper=serper,
-        serp_queries=max(1, int(os.environ.get("DERE_GEO_QUERIES", "4"))),
+        min_conf=float(os.environ.get("DERE_GEO_MIN_CONF", "0.6")),
         serp_cache={},
+        stats={"searches": 0},
         cache_lock=threading.Lock(),
     )
     engine = create_engine(
@@ -316,7 +366,10 @@ def main() -> None:
     from collections import Counter
 
     cats = Counter(r["category"] for r in ordered)
+    searches = cfg.stats.get("searches", 0)
+    per = searches / total if total else 0
     print(f"\nCategories: {dict(cats)}")
+    print(f"Serper searches used: {searches}  ({per:.2f} per company)")
     if serper is None:
         print("(Serper off - set DERE_SERPER_API_KEY for Google/Wikipedia evidence.)")
     print(f"Wrote -> {args.output}  (and {out_csv})")
