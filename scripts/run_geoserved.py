@@ -103,6 +103,7 @@ class _Config:
     verifier: GeoVerifier
     serper: SerperClient | None
     min_conf: float
+    full_mnc: bool
     serp_cache: dict[str, str]
     stats: dict[str, int]
     cache_lock: threading.Lock
@@ -180,12 +181,13 @@ def _geo_verdict(cfg: _Config, view: DomainFeatureView, company: str, host: str)
         return verdict, source
 
     # Tier 1: one combined search, unless the website already resolved a single geo.
-    if not _resolved(verdict, cfg.min_conf) or _looks_multinational(verdict):
+    # full_mnc=True also escalates multinationals (2+ countries) to build a fuller list.
+    if not _resolved(verdict, cfg.min_conf) or (cfg.full_mnc and _looks_multinational(verdict)):
         parts = [_cached_search(cfg, f"{label} {host} headquarters locations countries served")]
         verdict = _best(verdict, reverify(parts), cfg.min_conf)
         source = "website + 1 search"
         # Tier 2: escalate for multinationals or still-thin results -> fuller list.
-        if not _resolved(verdict, cfg.min_conf) or _looks_multinational(verdict):
+        if not _resolved(verdict, cfg.min_conf) or (cfg.full_mnc and _looks_multinational(verdict)):
             parts.append(
                 _cached_search(cfg, f"{label} linkedin headquarters OR locations OR offices")
             )
@@ -330,6 +332,7 @@ def main() -> None:
         verifier=GeoVerifier(build_client_from_env()),
         serper=serper,
         min_conf=float(os.environ.get("DERE_GEO_MIN_CONF", "0.6")),
+        full_mnc=os.environ.get("DERE_GEO_FULL", "1").strip().lower() in {"1", "true", "yes", "on"},
         serp_cache={},
         stats={"searches": 0},
         cache_lock=threading.Lock(),
