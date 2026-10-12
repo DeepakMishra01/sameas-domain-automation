@@ -23,10 +23,15 @@ country name (e.g. "United States", "United Kingdom", "India").
 
 Rules:
 - Base the answer ONLY on the provided evidence. Do not guess from the brand name.
-- Include a country only if the evidence shows real presence or service there. A \
-shipping/currency list is weaker evidence than stated offices or operations.
-- Give the headquarters country if it is shown.
-- If the evidence does not show any country, return an empty list and low confidence.
+- Include a country only if the evidence shows real presence or service there \
+(offices, operations, or where the product/service is offered). A shipping or \
+currency list is weaker than stated offices or operations.
+- HEADQUARTERS: find the HQ country from the website, the LinkedIn "Headquarters" \
+line, or the Wikipedia infobox. Put it in "headquarters" AND include it in "countries".
+- A company always operates in at least its headquarters country, so "countries" \
+should NOT be empty when any HQ or office location is known. Return an empty list \
+only when there is truly no location evidence at all.
+- Use the LinkedIn "Locations" and the Wikipedia infobox to add more countries.
 - Always include a short evidence_quote copied from the provided facts.
 - confidence is 0.0-1.0 (how sure you are about the country list).
 
@@ -61,8 +66,8 @@ def build_user_prompt(
     if web_evidence:
         parts += [
             "",
-            "WEB SEARCH RESULTS (Google / Wikipedia - use to confirm or add countries; "
-            "ignore anything irrelevant):",
+            "WEB SEARCH RESULTS (Google / LinkedIn / Wikipedia - use the Headquarters and "
+            "Locations lines to find the HQ and the countries; ignore anything irrelevant):",
             web_evidence[:1800],
         ]
     label = company_name or view.host

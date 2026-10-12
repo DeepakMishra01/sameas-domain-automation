@@ -125,13 +125,21 @@ def _observe(session: object, company_id: object, host: str) -> DomainFeatureVie
     return DomainFeatureView.from_snapshot(snaps[-1], host) if snaps else None
 
 
+def _geo_queries(label: str, host: str) -> list[str]:
+    """Targeted searches for HQ and the countries served, in priority order."""
+    return [
+        f'{label} {host} headquarters OR "head office" OR HQ location',
+        f"{label} linkedin headquarters OR locations OR offices",
+        f'{label} {host} offices OR locations OR countries OR "where we operate"',
+        f"{label} wikipedia headquarters countries operations",
+    ]
+
+
 def _geo_evidence(cfg: _Config, company: str, host: str) -> str:
     if cfg.serper is None:
         return ""
     label = company or host
-    queries = [f"{label} {host} offices OR locations OR countries OR headquarters"]
-    if cfg.serp_queries >= 2:
-        queries.append(f"{label} wikipedia company countries operations")
+    queries = _geo_queries(label, host)[: max(1, cfg.serp_queries)]
     blocks: list[str] = []
     for q in queries:
         with cfg.cache_lock:
@@ -272,7 +280,7 @@ def main() -> None:
     cfg = _Config(
         verifier=GeoVerifier(build_client_from_env()),
         serper=serper,
-        serp_queries=max(1, int(os.environ.get("DERE_SERP_QUERIES", "2"))),
+        serp_queries=max(1, int(os.environ.get("DERE_GEO_QUERIES", "4"))),
         serp_cache={},
         cache_lock=threading.Lock(),
     )
