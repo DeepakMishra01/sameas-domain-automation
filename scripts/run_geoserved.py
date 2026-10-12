@@ -299,6 +299,7 @@ def main() -> None:
     parser.add_argument("input")
     parser.add_argument("output")
     parser.add_argument("--limit", type=int, default=100000)
+    parser.add_argument("--start", type=int, default=0, help="skip the first N rows")
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
 
@@ -306,7 +307,7 @@ def main() -> None:
     raw = list(wb[wb.sheetnames[0]].iter_rows(values_only=True))
     col = _columns(raw[0]) if raw else {"sno": 0, "company": 1, "domain": 2}
     tasks: list[dict[str, str]] = []
-    for r in raw[1:][: args.limit]:
+    for r in raw[1:][args.start : args.start + args.limit]:
         tasks.append(
             {
                 "sno": (
